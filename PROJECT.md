@@ -151,7 +151,6 @@ Planned features and improvements:
 - Mac & Windows executables
 - Improved logging configuration
 - Custom application name and icon
-- Purchase functionality
 
 ## Development Methodology
 
