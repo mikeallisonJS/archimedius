@@ -21,7 +21,7 @@ export default function DocumentationPage() {
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
             <Image
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Icon1024-NQrw6m9CO32rrXYKQfBvmYVmjqBErs.png"
+              src="/logo.png"
               alt="Archimedius Logo"
               width={32}
               height={32}
@@ -36,7 +36,7 @@ export default function DocumentationPage() {
             <Link href="/documentation" className="text-sm font-medium text-primary">
               Documentation
             </Link>
-            <Link href="/download" className="text-sm font-medium hover:text-primary">
+            <Link href="/#download" className="text-sm font-medium hover:text-primary">
               Download
             </Link>
           </nav>
@@ -562,7 +562,7 @@ export default function DocumentationPage() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      Your settings are automatically saved, but you can manually save them using Settings > Save
+                      Your settings are automatically saved, but you can manually save them using Settings &gt; Save
                       Settings if you've made changes you want to keep.
                     </p>
                   </CardContent>
@@ -577,7 +577,7 @@ export default function DocumentationPage() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      If something doesn't work as expected, check the logs (View > Show Logs) for more detailed
+                      If something doesn't work as expected, check the logs (View &gt; Show Logs) for more detailed
                       information about what happened.
                     </p>
                   </CardContent>
@@ -680,7 +680,7 @@ export default function DocumentationPage() {
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
                       If the application appears to freeze during organization, it may be processing a large file. Check
-                      the logs (View > Show Logs) for more information.
+                      the logs (View &gt; Show Logs) for more information.
                     </p>
                   </CardContent>
                 </Card>
@@ -755,7 +755,7 @@ export default function DocumentationPage() {
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center gap-2">
               <Image
-                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Icon1024-NQrw6m9CO32rrXYKQfBvmYVmjqBErs.png"
+                src="/logo.png"
                 alt="Archimedius Logo"
                 width={24}
                 height={24}
