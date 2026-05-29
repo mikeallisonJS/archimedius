@@ -24,7 +24,6 @@ from settings import (
     sync_gui_from_settings,
 )
 from log_window import LogWindow
-from preferences_dialog import PreferencesDialog
 from archimedius import Archimedius
 from organize_plan import build_plans_for_paths, execute_plans, scan_source
 from about_dialog import AboutDialog
@@ -614,24 +613,6 @@ class ArchimediusGUI:
             self.log_window.hide()
         else:
             self.log_window.show()
-
-    def _show_preferences(self):
-        """Show the preferences dialog."""
-        # Create a callback function to handle the result from the preferences dialog
-        def on_save(result):
-            if result:
-                if 'extensions' in result:
-                    self.settings.supported_extensions = result['extensions']
-                    # Save settings to file
-                    self._save_settings()
-                    # Refresh extension filters if needed
-                    if result.get('refresh_extensions', False):
-                        self._refresh_extension_filters()
-                        # Auto-generate preview if enabled
-                        self._auto_generate_preview()
-        
-        # Create the preferences dialog with the callback
-        PreferencesDialog(self.root, self, self.settings.supported_extensions, callback=on_save)
 
     def _create_preferences_tab(self, parent):
         """Create inline preferences controls in the Preferences tab."""
