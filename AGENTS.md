@@ -15,3 +15,7 @@ Five canonical triage roles mapped to GitHub label strings (defaults). See `docs
 ### Domain docs
 
 Single-context layout: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### PR review feedback
+
+When addressing review comments on an open PR, use `.agents/skills/handle-pr-review/SKILL.md`
