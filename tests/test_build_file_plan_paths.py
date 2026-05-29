@@ -122,3 +122,60 @@ def test_build_file_plan_adds_extension_when_template_has_filename_only(tmp_path
     )
 
     assert plan.destination_path == "clip.mp4"
+
+
+def test_build_file_plan_smoke_per_media_type_destination_segments(tmp_path: Path):
+    """Organize-plan smoke: each media type yields a sensible destination path."""
+    from unittest.mock import MagicMock, patch
+
+    from PIL import Image
+
+    from tests.conftest import write_minimal_epub
+
+    audio_path = tmp_path / "song.mp3"
+    _touch(audio_path)
+    tag = MagicMock(title="Smoke Song", artist="Smoke Artist", genre="Jazz")
+    with patch("metadata_extract.audio.TinyTag.get", return_value=tag):
+        audio_plan = build_file_plan(
+            audio_path,
+            templates=TEMPLATES,
+            supported_extensions=SUPPORTED,
+            exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+        )
+    assert audio_plan.media_type == "audio"
+    assert "Jazz" in audio_plan.destination_path
+    assert audio_plan.destination_path.endswith("song.mp3")
+
+    video_path = tmp_path / "clip.mp4"
+    _touch(video_path)
+    video_plan = build_file_plan(
+        video_path,
+        templates=TEMPLATES,
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+    assert video_plan.media_type == "video"
+    assert "clip" in video_plan.destination_path
+
+    image_path = tmp_path / "photo.jpg"
+    Image.new("RGB", (100, 100), color="blue").save(image_path, format="JPEG")
+    image_plan = build_file_plan(
+        image_path,
+        templates=TEMPLATES,
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+    assert image_plan.media_type == "image"
+    assert image_plan.destination_path.endswith("photo.jpg")
+
+    epub_path = tmp_path / "book.epub"
+    write_minimal_epub(epub_path)
+    ebook_plan = build_file_plan(
+        epub_path,
+        templates=TEMPLATES,
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+    assert ebook_plan.media_type == "ebook"
+    assert "Jane Author" in ebook_plan.destination_path
+    assert "Sample Book" in ebook_plan.destination_path

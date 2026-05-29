@@ -28,7 +28,7 @@ The application follows a modular architecture with clear separation of concerns
 
 ### Core Modules
 
-- **`metadata_extract.py`**: Metadata extraction and media type detection
+- **`metadata_extract/`**: Per-media-type metadata extraction and media type detection
 - **`destination_path.py`**: Template-based destination path resolution
 - **`organize_plan.py`**: Source scan, file planning, and organize execution
 - **`archimedius.py`**: Core organizer state (templates, directories, operation mode)

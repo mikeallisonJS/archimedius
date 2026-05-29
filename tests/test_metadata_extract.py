@@ -11,6 +11,7 @@ import pytest
 from PIL import Image
 
 from metadata_extract import detect_media_type, extract_metadata
+from tests.conftest import write_minimal_epub
 
 SUPPORTED = defaults.DEFAULT_EXTENSIONS
 
@@ -36,7 +37,7 @@ def test_extract_metadata_audio_without_path_resolution(tmp_path: Path):
         samplerate=44100,
     )
 
-    with patch("metadata_extract.TinyTag.get", return_value=tag):
+    with patch("metadata_extract.audio.TinyTag.get", return_value=tag):
         metadata = extract_metadata(audio_path, media_type="audio")
 
     assert metadata["title"] == "Test Song"
@@ -50,12 +51,68 @@ def test_extract_metadata_audio_defaults_when_tag_read_fails(tmp_path: Path):
     audio_path = tmp_path / "broken.mp3"
     audio_path.write_bytes(b"")
 
-    with patch("metadata_extract.TinyTag.get", side_effect=OSError("read failed")):
+    with patch("metadata_extract.audio.TinyTag.get", side_effect=OSError("read failed")):
         metadata = extract_metadata(audio_path, media_type="audio")
 
     assert metadata["title"] == "broken"
     assert metadata["artist"] == "Unknown"
     assert metadata["genre"] == "Unknown"
+
+
+def test_extract_metadata_video_uses_mediainfo_when_available(tmp_path: Path):
+    video_path = tmp_path / "movie.mkv"
+    video_path.write_bytes(b"")
+
+    general_track = MagicMock(
+        track_type="General",
+        title="Feature Film",
+        movie_name=None,
+        album=None,
+        performer="Lead Actor",
+        director="Famous Director",
+        recorded_date="2019-06-01",
+        genre="Drama",
+        duration=125000,
+    )
+    video_track = MagicMock(
+        track_type="Video",
+        width=1920,
+        height=1080,
+        frame_rate="24.000",
+        codec="AVC",
+        bit_depth=8,
+    )
+    media_info = MagicMock(tracks=[general_track, video_track])
+
+    with (
+        patch("metadata_extract.video.MEDIAINFO_AVAILABLE", True),
+        patch("metadata_extract.video.MediaInfo.parse", return_value=media_info),
+    ):
+        metadata = extract_metadata(video_path, media_type="video")
+
+    assert metadata["title"] == "Feature Film"
+    assert metadata["artist"] == "Lead Actor"
+    assert metadata["year"] == "2019"
+    assert metadata["width"] == 1920
+    assert metadata["duration"] == "2:05"
+
+
+def test_extract_metadata_video_falls_back_when_mediainfo_unavailable(tmp_path: Path):
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"x" * 32)
+
+    tag = MagicMock(title="Fallback Title", artist=None, year=2021, duration=90.0)
+
+    with (
+        patch("metadata_extract.video.MEDIAINFO_AVAILABLE", False),
+        patch("metadata_extract.video.TinyTag.get", return_value=tag),
+    ):
+        metadata = extract_metadata(video_path, media_type="video")
+
+    assert metadata["title"] == "Fallback Title"
+    assert metadata["year"] == "2021"
+    assert metadata["duration"] == "1:30"
+    assert metadata["filename"] == "clip"
 
 
 def test_extract_metadata_image_reads_dimensions(tmp_path: Path):
@@ -80,6 +137,30 @@ def test_extract_metadata_image_without_exif_leaves_camera_fields_absent(tmp_pat
     assert metadata["extension"] == "png"
 
 
+def test_extract_metadata_epub_reads_dc_fields(tmp_path: Path):
+    epub_path = tmp_path / "book.epub"
+    write_minimal_epub(epub_path)
+
+    metadata = extract_metadata(epub_path, media_type="ebook")
+
+    assert metadata["title"] == "Sample Book"
+    assert metadata["author"] == "Jane Author"
+    assert metadata["year"] == "2022"
+    assert metadata["publisher"] == "Test Press"
+    assert metadata["language"] == "en"
+
+
+def test_extract_metadata_pdf_graceful_when_pypdf_missing(tmp_path: Path):
+    pdf_path = tmp_path / "doc.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+
+    with patch.dict("sys.modules", {"pypdf": None}):
+        metadata = extract_metadata(pdf_path, media_type="ebook")
+
+    assert metadata["title"] == "doc"
+    assert metadata["author"] == "Unknown"
+
+
 def test_best_creation_timestamp_prefers_birthtime_on_macos(monkeypatch):
     from metadata_extract import _best_creation_timestamp
 
@@ -88,7 +169,7 @@ def test_best_creation_timestamp_prefers_birthtime_on_macos(monkeypatch):
         st_mtime = 200.0
         st_birthtime = 50.0
 
-    monkeypatch.setattr("metadata_extract.sys.platform", "darwin")
+    monkeypatch.setattr("metadata_extract.common.sys.platform", "darwin")
     assert _best_creation_timestamp(FakeStat()) == 50.0
 
 
@@ -99,7 +180,7 @@ def test_best_creation_timestamp_uses_ctime_on_windows(monkeypatch):
         st_ctime = 100.0
         st_mtime = 200.0
 
-    monkeypatch.setattr("metadata_extract.sys.platform", "win32")
+    monkeypatch.setattr("metadata_extract.common.sys.platform", "win32")
     assert _best_creation_timestamp(FakeStat()) == 100.0
 
 
@@ -110,7 +191,7 @@ def test_best_creation_timestamp_falls_back_to_mtime_on_linux(monkeypatch):
         st_ctime = 100.0
         st_mtime = 200.0
 
-    monkeypatch.setattr("metadata_extract.sys.platform", "linux")
+    monkeypatch.setattr("metadata_extract.common.sys.platform", "linux")
     assert _best_creation_timestamp(FakeStat()) == 200.0
 
 
