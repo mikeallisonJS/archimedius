@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Sequence
-from xml.etree import ElementTree as ET
+
+from defusedxml import ElementTree as ET
 
 from PIL import Image
 from tinytag import TinyTag
@@ -43,6 +45,16 @@ def detect_media_type(
     return "unknown"
 
 
+def _best_creation_timestamp(stat_result) -> float:
+    """Return the closest available creation timestamp for the current platform."""
+    if sys.platform == "win32":
+        return stat_result.st_ctime
+    birthtime = getattr(stat_result, "st_birthtime", None)
+    if birthtime is not None:
+        return birthtime
+    return stat_result.st_mtime
+
+
 def _add_common_file_metadata(metadata: dict, file_path: Path) -> None:
     """Add filename, extension, size, and creation date fields."""
     metadata["filename"] = file_path.stem
@@ -54,7 +66,7 @@ def _add_common_file_metadata(metadata: dict, file_path: Path) -> None:
     except OSError:
         return
 
-    creation_time = datetime.fromtimestamp(stat_result.st_ctime)
+    creation_time = datetime.fromtimestamp(_best_creation_timestamp(stat_result))
     metadata["size"] = stat_result.st_size
     metadata["creation_date"] = creation_time.strftime("%Y-%m-%d")
     metadata["creation_year"] = creation_time.strftime("%Y")

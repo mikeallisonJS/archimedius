@@ -58,13 +58,8 @@ def resolve_destination_path(
         filename_with_extension = str(resolved_metadata.get("filename_with_extension", ""))
         extension = str(resolved_metadata.get("extension", ""))
 
-        if "{filename}" not in template and "{filename}.{extension}" not in template:
-            if formatted_path.endswith(".{extension}"):
-                formatted_path = formatted_path.replace(
-                    ".{extension}", f".{extension}"
-                )
-            else:
-                formatted_path = os.path.join(formatted_path, filename_with_extension)
+        if "{filename}" not in template and "{extension}" not in template:
+            formatted_path = os.path.join(formatted_path, filename_with_extension)
         elif "{filename}" in template and "{extension}" not in template:
             base_dir = os.path.dirname(formatted_path)
             base_name = os.path.basename(formatted_path)

@@ -80,6 +80,40 @@ def test_extract_metadata_image_without_exif_leaves_camera_fields_absent(tmp_pat
     assert metadata["extension"] == "png"
 
 
+def test_best_creation_timestamp_prefers_birthtime_on_macos(monkeypatch):
+    from metadata_extract import _best_creation_timestamp
+
+    class FakeStat:
+        st_ctime = 100.0
+        st_mtime = 200.0
+        st_birthtime = 50.0
+
+    monkeypatch.setattr("metadata_extract.sys.platform", "darwin")
+    assert _best_creation_timestamp(FakeStat()) == 50.0
+
+
+def test_best_creation_timestamp_uses_ctime_on_windows(monkeypatch):
+    from metadata_extract import _best_creation_timestamp
+
+    class FakeStat:
+        st_ctime = 100.0
+        st_mtime = 200.0
+
+    monkeypatch.setattr("metadata_extract.sys.platform", "win32")
+    assert _best_creation_timestamp(FakeStat()) == 100.0
+
+
+def test_best_creation_timestamp_falls_back_to_mtime_on_linux(monkeypatch):
+    from metadata_extract import _best_creation_timestamp
+
+    class FakeStat:
+        st_ctime = 100.0
+        st_mtime = 200.0
+
+    monkeypatch.setattr("metadata_extract.sys.platform", "linux")
+    assert _best_creation_timestamp(FakeStat()) == 200.0
+
+
 def test_extract_metadata_requires_supported_extensions_when_type_omitted(tmp_path: Path):
     audio_path = tmp_path / "song.mp3"
     audio_path.write_bytes(b"")

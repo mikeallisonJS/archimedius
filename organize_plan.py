@@ -186,6 +186,7 @@ def _default_metadata_extractor(
     file_path: Path,
     supported_extensions: Mapping[str, Sequence[str]],
 ) -> tuple[str, dict]:
+    """Extract media type and metadata for organize-plan path building."""
     media_type = detect_media_type(file_path, supported_extensions)
     metadata = extract_metadata(
         file_path,

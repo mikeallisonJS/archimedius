@@ -77,6 +77,23 @@ def test_resolve_destination_path_fills_missing_placeholders_with_unknown():
     assert formatted.startswith(os.path.join("Unknown", "song"))
 
 
+def test_resolve_destination_path_does_not_append_when_template_includes_extension():
+    metadata = {
+        "title": "Hit Song",
+        "extension": "mp3",
+        "filename_with_extension": "other.mp3",
+    }
+
+    formatted = resolve_destination_path(
+        metadata,
+        "audio",
+        "{artist}/{title}.{extension}",
+    )
+
+    assert formatted == os.path.join("Unknown", "Hit Song.mp3")
+    assert not formatted.endswith(os.path.join("Hit Song.mp3", "other.mp3"))
+
+
 def test_resolve_destination_path_adds_extension_when_template_has_filename_only():
     metadata = {"filename": "clip", "extension": "mp4", "filename_with_extension": "clip.mp4"}
 
