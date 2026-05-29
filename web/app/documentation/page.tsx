@@ -21,7 +21,7 @@ export default function DocumentationPage() {
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-2">
             <Image
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Icon1024-NQrw6m9CO32rrXYKQfBvmYVmjqBErs.png"
+              src="/logo.png"
               alt="Archimedius Logo"
               width={32}
               height={32}
@@ -36,7 +36,7 @@ export default function DocumentationPage() {
             <Link href="/documentation" className="text-sm font-medium text-primary">
               Documentation
             </Link>
-            <Link href="/download" className="text-sm font-medium hover:text-primary">
+            <Link href="/#download" className="text-sm font-medium hover:text-primary">
               Download
             </Link>
           </nav>
@@ -755,7 +755,7 @@ export default function DocumentationPage() {
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="flex items-center gap-2">
               <Image
-                src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Icon1024-NQrw6m9CO32rrXYKQfBvmYVmjqBErs.png"
+                src="/logo.png"
                 alt="Archimedius Logo"
                 width={24}
                 height={24}

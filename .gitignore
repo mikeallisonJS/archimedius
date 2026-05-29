@@ -91,3 +91,8 @@ $RECYCLE.BIN/
 *.dmg
 *.exe
 *.app
+
+# Next.js web app source — re-include (the generic Python "lib/" rule above
+# otherwise ignores the landing page's web/lib/ directory)
+!web/lib/
+!web/lib/**
