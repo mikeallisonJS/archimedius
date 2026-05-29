@@ -9,9 +9,10 @@ import shutil
 import logging
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 import json
+from ttkbootstrap import Style
 
 # Import application modules
 import extensions
@@ -20,9 +21,9 @@ from log_window import LogWindow
 from preferences_dialog import PreferencesDialog
 from media_file import MediaFile
 from archimedius import Archimedius
+from organize_plan import scan_source
 from about_dialog import AboutDialog
 from help_dialog import HelpDialog
-from license_manager import LicenseManager
 
 # Configure logging
 logger = logging.getLogger("Archimedius")
@@ -40,22 +41,6 @@ class ArchimediusGUI:
         self.root.geometry(defaults.DEFAULT_WINDOW_SIZES["main_window"])  # Increase default height
         self.root.minsize(800, 800)    # Ensure minimum size
         
-        # Initialize license manager
-        self.license_manager = LicenseManager()
-        
-        # Check license status
-        if not self.license_manager.is_valid():
-            # Show activation dialog if not licensed or in trial mode
-            self.license_manager.show_activation_dialog(self.root)
-            # If still not valid after dialog, exit
-            if not self.license_manager.is_valid():
-                messagebox.showerror(
-                    "License Required",
-                    f"{defaults.APP_NAME} requires a valid license or active trial to run."
-                )
-                self.root.destroy()
-                return
-        
         # Initialize the media organizer
         self.organizer = Archimedius()
         
@@ -64,9 +49,15 @@ class ArchimediusGUI:
         self.auto_save_enabled = defaults.DEFAULT_SETTINGS["auto_save_enabled"]
         self.auto_preview_enabled = defaults.DEFAULT_SETTINGS["auto_preview_enabled"]
         self.logging_level = defaults.DEFAULT_SETTINGS["logging_level"]
+        self.dark_mode = defaults.DEFAULT_SETTINGS["dark_mode"]
+        self.style = Style()
         
         # Create variables for extension filters
         self.extension_vars = {"audio": {}, "video": {}, "image": {}, "ebook": {}}
+        
+        # Stored preview data for client-side re-filtering when extensions change
+        self._full_preview_data = []
+        self._full_preview_count = 0
         
         # Config file path
         self.config_file = Path.home() / defaults.DEFAULT_PATHS["settings_file"]
@@ -80,6 +71,7 @@ class ArchimediusGUI:
         
         # Create the widgets
         self._create_widgets()
+        self.apply_theme(self.dark_mode)
         
         # Create log window
         self.log_window = LogWindow(self.root, logger)
@@ -93,37 +85,69 @@ class ArchimediusGUI:
         # Log startup
         logger.info("Archimedius started")
 
+    def apply_theme(self, dark_mode):
+        """Apply ttkbootstrap theme based on dark mode."""
+        self.dark_mode = bool(dark_mode)
+        theme_name = "darkly" if self.dark_mode else "litera"
+
+        try:
+            self.style.theme_use(theme_name)
+
+            # tk.Menu is not a ttk widget; keep it consistently light.
+            menu_colors = {
+                "bg": "#f5f5f5",
+                "fg": "#1a1a1a",
+                "active_bg": "#e6e6e6",
+                "active_fg": "#111111",
+            }
+
+            if hasattr(self, "menubar"):
+                self.menubar.configure(
+                    background=menu_colors["bg"],
+                    foreground=menu_colors["fg"],
+                    activebackground=menu_colors["active_bg"],
+                    activeforeground=menu_colors["active_fg"],
+                    borderwidth=0,
+                )
+                for menu in [self.file_menu, self.tools_menu, self.help_menu]:
+                    menu.configure(
+                        background=menu_colors["bg"],
+                        foreground=menu_colors["fg"],
+                        activebackground=menu_colors["active_bg"],
+                        activeforeground=menu_colors["active_fg"],
+                        borderwidth=0,
+                    )
+        except Exception as e:
+            logger.warning("Failed to apply Sun-Valley theme: %s", e)
+
     def _create_menu(self):
         """Create the application menu."""
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
+        self.menubar = tk.Menu(self.root)
+        self.root.config(menu=self.menubar)
         
         # File menu
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Open Source Directory...", command=self._browse_source)
-        file_menu.add_command(label="Open Output Directory...", command=self._browse_output)
-        file_menu.add_separator()
-        file_menu.add_command(label="Save Settings", command=self._save_settings_manual)
-        file_menu.add_command(label="Reset Settings", command=self._reset_settings)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self._on_close)
+        self.file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="File", menu=self.file_menu)
+        self.file_menu.add_command(label="Open Source Directory...", command=self._browse_source)
+        self.file_menu.add_command(label="Open Output Directory...", command=self._browse_output)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="Save Settings", command=self._save_settings_manual)
+        self.file_menu.add_command(label="Reset Settings", command=self._reset_settings)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="Exit", command=self._on_close)
         
         # Tools menu
-        tools_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Tools", menu=tools_menu)
-        tools_menu.add_command(label="Preferences", command=self._show_preferences)
-        tools_menu.add_command(label="View Logs", command=self._toggle_logs)
+        self.tools_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Tools", menu=self.tools_menu)
+        self.tools_menu.add_command(label="View Logs", command=self._toggle_logs)
         
         # Help menu
-        help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="Help Contents", command=self._show_help)
-        help_menu.add_command(label="Placeholders Help", command=self._show_placeholders_help)
-        help_menu.add_separator()
-        help_menu.add_command(label="License Activation", command=self._show_license_activation)
-        help_menu.add_separator()
-        help_menu.add_command(label="About", command=self._show_about)
+        self.help_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Help", menu=self.help_menu)
+        self.help_menu.add_command(label="Help Contents", command=self._show_help)
+        self.help_menu.add_command(label="Placeholders Help", command=self._show_placeholders_help)
+        self.help_menu.add_separator()
+        self.help_menu.add_command(label="About", command=self._show_about)
 
     def _create_widgets(self):
         """Create the GUI widgets."""
@@ -154,8 +178,7 @@ class ArchimediusGUI:
         status_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=2)
         
         self.status_var = tk.StringVar()
-        status_message = self.license_manager.get_status_message()
-        self.status_var.set(f"License: {status_message}")
+        self.status_var.set("Ready")
         
         status_label = ttk.Label(status_frame, textvariable=self.status_var, anchor=tk.W)
         status_label.pack(side=tk.LEFT, padx=5)
@@ -184,9 +207,9 @@ class ArchimediusGUI:
         )
         self.stop_button.pack(side=tk.LEFT, padx=5)
         
-        # Top section frame - fixed height
+        # Top section frame - directories + tabbed content
         top_frame = ttk.Frame(self.main_frame)
-        top_frame.pack(fill=tk.X, pady=2, side=tk.TOP)
+        top_frame.pack(fill=tk.BOTH, expand=True, pady=2, side=tk.TOP)
         
         # Create a frame to hold both directory selection frames
         directories_frame = ttk.Frame(top_frame)
@@ -212,12 +235,24 @@ class ArchimediusGUI:
         output_button = ttk.Button(self.output_frame, text="Browse...", command=self._browse_output)
         output_button.pack(side=tk.RIGHT)
         
-        # Extension filters
-        extensions_frame = ttk.LabelFrame(top_frame, text="File Type Filters", padding=5)
-        extensions_frame.pack(fill=tk.X, pady=2)
-        
+        # Tabbed content area for filters/templates/preview
+        content_tabs = ttk.Notebook(top_frame)
+        content_tabs.pack(fill=tk.BOTH, expand=True, pady=2)
+
+        file_types_tab = ttk.Frame(content_tabs, padding=5)
+        templates_tab = ttk.Frame(content_tabs, padding=5)
+        preview_tab = ttk.Frame(content_tabs, padding=5)
+        preferences_tab = ttk.Frame(content_tabs, padding=10)
+
+        content_tabs.add(preview_tab, text="Preview")
+        content_tabs.add(templates_tab, text="Organization Templates")
+        content_tabs.add(file_types_tab, text="File Type Filters")
+        content_tabs.add(preferences_tab, text="Preferences")
+        content_tabs.select(preview_tab)
+        self._create_preferences_tab(preferences_tab)
+
         # Create a frame for each file type category
-        self.file_types_frame = ttk.Frame(extensions_frame)
+        self.file_types_frame = ttk.Frame(file_types_tab)
         self.file_types_frame.pack(fill=tk.X, pady=2)
         
         # Audio extensions
@@ -340,9 +375,9 @@ class ArchimediusGUI:
             )
             cb.grid(row=i // 2, column=i % 2, sticky=tk.W, padx=5)
         
-        # Template configuration
-        template_frame = ttk.LabelFrame(top_frame, text="Organization Templates", padding=5)
-        template_frame.pack(fill=tk.X, pady=2)
+        # Template configuration (no extra section wrapper)
+        template_frame = ttk.Frame(templates_tab, padding=5)
+        template_frame.pack(fill=tk.BOTH, expand=True, pady=2)
         
         template_header_frame = ttk.Frame(template_frame)
         template_header_frame.pack(fill=tk.X, pady=2)
@@ -484,14 +519,8 @@ class ArchimediusGUI:
         # For backward compatibility
         self.template_var = self.template_vars["audio"]
 
-        # Middle section - expandable preview
-        middle_frame = ttk.Frame(self.main_frame)
-        middle_frame.pack(fill=tk.BOTH, expand=True, pady=2, side=tk.TOP)
-        
-        # Preview frame
-        preview_frame = ttk.LabelFrame(
-            middle_frame, text="Preview", padding=5
-        )
+        # Preview tab content (no extra wrapper)
+        preview_frame = ttk.Frame(preview_tab, padding=5)
         preview_frame.pack(fill=tk.BOTH, expand=True, pady=2)
 
         # Add a button frame at the top of the preview
@@ -606,6 +635,197 @@ class ArchimediusGUI:
         # Create the preferences dialog with the callback
         PreferencesDialog(self.root, self, SUPPORTED_EXTENSIONS, callback=on_save)
 
+    def _create_preferences_tab(self, parent):
+        """Create inline preferences controls in the Preferences tab."""
+        preferences_frame = ttk.Frame(parent)
+        preferences_frame.pack(fill=tk.BOTH, expand=True)
+
+        prefs_notebook = ttk.Notebook(preferences_frame)
+        prefs_notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        general_tab = ttk.Frame(prefs_notebook, padding=10)
+        file_types_tab = ttk.Frame(prefs_notebook, padding=10)
+        prefs_notebook.add(general_tab, text="General")
+        prefs_notebook.add(file_types_tab, text="File Types")
+
+        # General settings
+        self.pref_auto_preview_var = tk.BooleanVar(value=self.auto_preview_enabled)
+        self.pref_auto_save_var = tk.BooleanVar(value=self.auto_save_enabled)
+        self.pref_show_full_paths_var = tk.BooleanVar(value=self.show_full_paths)
+        self.pref_dark_mode_var = tk.BooleanVar(value=self.dark_mode)
+        self.pref_logging_level_var = tk.StringVar(value=self.logging_level)
+
+        ttk.Checkbutton(
+            general_tab,
+            text="Automatically generate preview when settings change",
+            variable=self.pref_auto_preview_var,
+            command=self._on_inline_general_preferences_change,
+        ).pack(anchor=tk.W, pady=4)
+        ttk.Checkbutton(
+            general_tab,
+            text="Automatically save settings when inputs change",
+            variable=self.pref_auto_save_var,
+            command=self._on_inline_general_preferences_change,
+        ).pack(anchor=tk.W, pady=4)
+        ttk.Checkbutton(
+            general_tab,
+            text="Show full file paths in preview",
+            variable=self.pref_show_full_paths_var,
+            command=self._on_inline_general_preferences_change,
+        ).pack(anchor=tk.W, pady=4)
+        ttk.Checkbutton(
+            general_tab,
+            text="Enable dark mode",
+            variable=self.pref_dark_mode_var,
+            command=self._on_inline_dark_mode_toggle,
+        ).pack(anchor=tk.W, pady=4)
+
+        logging_row = ttk.Frame(general_tab)
+        logging_row.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(logging_row, text="Logging Level:").pack(side=tk.LEFT, padx=(0, 10))
+        logging_combobox = ttk.Combobox(
+            logging_row,
+            textvariable=self.pref_logging_level_var,
+            values=list(defaults.LOGGING_LEVELS.keys()),
+            state="readonly",
+            width=10,
+        )
+        logging_combobox.pack(side=tk.LEFT)
+        logging_combobox.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self._on_inline_general_preferences_change(),
+        )
+
+        # File type extension settings
+        self.pref_extension_texts = {}
+        filetype_notebook = ttk.Notebook(file_types_tab)
+        filetype_notebook.pack(fill=tk.BOTH, expand=True)
+
+        for media_type in ["audio", "video", "image", "ebook"]:
+            frame = ttk.Frame(filetype_notebook, padding=10)
+            filetype_notebook.add(frame, text=media_type.title())
+            ttk.Label(
+                frame,
+                text=f"Extensions for {media_type} files (one per line):",
+                wraplength=500,
+            ).pack(anchor=tk.W, pady=(0, 5))
+
+            text_frame = ttk.Frame(frame)
+            text_frame.pack(fill=tk.BOTH, expand=True)
+            text_widget = tk.Text(text_frame, height=10)
+            scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+            text_widget.configure(yscrollcommand=scrollbar.set)
+            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            text_widget.insert(
+                "1.0",
+                "\n".join(ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS[media_type]),
+            )
+            self.pref_extension_texts[media_type] = text_widget
+
+            ttk.Button(
+                frame,
+                text="Reset to Default",
+                command=lambda m=media_type: self._reset_inline_extensions_to_default(m),
+            ).pack(anchor=tk.E, pady=5)
+
+        # Action buttons
+        buttons_frame = ttk.Frame(preferences_frame)
+        buttons_frame.pack(fill=tk.X)
+        ttk.Button(
+            buttons_frame,
+            text="Save Preferences",
+            command=self._save_inline_preferences,
+        ).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(
+            buttons_frame,
+            text="Reload From Saved Settings",
+            command=self._load_settings,
+        ).pack(side=tk.RIGHT, padx=5)
+
+    def _reset_inline_extensions_to_default(self, media_type):
+        """Reset inline extension editor for one media type."""
+        default_extensions = [ext.lstrip(".") for ext in defaults.get_default_extensions()[media_type]]
+        if media_type in getattr(self, "pref_extension_texts", {}):
+            self.pref_extension_texts[media_type].delete("1.0", tk.END)
+            self.pref_extension_texts[media_type].insert("1.0", "\n".join(default_extensions))
+
+    def _save_inline_preferences(self):
+        """Save inline preferences tab settings."""
+        try:
+            self.auto_preview_enabled = self.pref_auto_preview_var.get()
+            self.auto_save_enabled = self.pref_auto_save_var.get()
+            self.show_full_paths = self.pref_show_full_paths_var.get()
+            self.logging_level = self.pref_logging_level_var.get()
+            self.dark_mode = self.pref_dark_mode_var.get()
+            self.apply_theme(self.dark_mode)
+
+            new_extensions = {}
+            for media_type, text_widget in self.pref_extension_texts.items():
+                extensions_text = text_widget.get("1.0", "end-1c").split("\n")
+                extensions_list = [ext.strip() for ext in extensions_text if ext.strip()]
+                extensions_list = [ext if ext.startswith(".") else f".{ext}" for ext in extensions_list]
+                if not extensions_list:
+                    messagebox.showerror(
+                        "Error",
+                        f"Please provide at least one extension for {media_type}.",
+                    )
+                    return
+                new_extensions[media_type] = extensions_list
+
+            global SUPPORTED_EXTENSIONS
+            SUPPORTED_EXTENSIONS = new_extensions
+            self._refresh_extension_filters()
+            self._save_settings()
+            self._auto_generate_preview()
+            self.status_var.set("Preferences saved.")
+        except Exception as e:
+            logger.error(f"Error saving inline preferences: {e}")
+            messagebox.showerror("Error", f"Failed to save preferences: {str(e)}")
+
+    def _on_inline_dark_mode_toggle(self):
+        """Apply dark mode immediately from inline preferences."""
+        self._on_inline_general_preferences_change()
+
+    def _on_inline_general_preferences_change(self):
+        """Apply general preference changes immediately and persist them."""
+        previous_show_full_paths = self.show_full_paths
+        self.auto_preview_enabled = self.pref_auto_preview_var.get()
+        self.auto_save_enabled = self.pref_auto_save_var.get()
+        self.show_full_paths = self.pref_show_full_paths_var.get()
+        self.logging_level = self.pref_logging_level_var.get()
+        self.dark_mode = self.pref_dark_mode_var.get()
+        self.apply_theme(self.dark_mode)
+        self._save_settings()
+
+        # Refresh preview display immediately when path display mode changes.
+        if previous_show_full_paths != self.show_full_paths:
+            source_dir = self.source_entry.get().strip()
+            if source_dir and os.path.exists(source_dir):
+                self._generate_preview()
+
+    def _sync_inline_preferences_controls(self):
+        """Sync inline preference controls with current in-memory settings."""
+        if hasattr(self, "pref_auto_preview_var"):
+            self.pref_auto_preview_var.set(self.auto_preview_enabled)
+        if hasattr(self, "pref_auto_save_var"):
+            self.pref_auto_save_var.set(self.auto_save_enabled)
+        if hasattr(self, "pref_show_full_paths_var"):
+            self.pref_show_full_paths_var.set(self.show_full_paths)
+        if hasattr(self, "pref_dark_mode_var"):
+            self.pref_dark_mode_var.set(self.dark_mode)
+        if hasattr(self, "pref_logging_level_var"):
+            self.pref_logging_level_var.set(self.logging_level)
+
+        if hasattr(self, "pref_extension_texts"):
+            for media_type, text_widget in self.pref_extension_texts.items():
+                if media_type in SUPPORTED_EXTENSIONS:
+                    text_widget.delete("1.0", tk.END)
+                    text_widget.insert(
+                        "1.0",
+                        "\n".join(ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS[media_type]),
+                    )
+
     def _browse_source(self):
         """Browse for source directory."""
         directory = filedialog.askdirectory(title="Select Source Directory")
@@ -635,9 +855,11 @@ class ArchimediusGUI:
             self._auto_generate_preview()
             
     def _clear_preview(self):
-        """Clear the preview list."""
+        """Clear the preview list and stored preview data."""
         for item in self.preview_tree.get_children():
             self.preview_tree.delete(item)
+        self._full_preview_data = []
+        self._full_preview_count = 0
     
     def _update_progress(self, processed, total, current_file):
         """Update the progress display."""
@@ -659,6 +881,12 @@ class ArchimediusGUI:
                 else:
                     display_file = current_file
                 self.file_var.set(f"Current: {display_file}")
+        elif current_file == "Complete":
+            self.progress_var.set(0)
+            self.status_var.set("No matching files found.")
+            self.file_var.set("")
+            if not hasattr(self, "processing_selected_files") or not self.processing_selected_files:
+                self._organization_complete()
     
     def _generate_preview(self):
         """Generate a preview of the organization."""
@@ -716,108 +944,64 @@ class ArchimediusGUI:
                 # Update UI in the main thread
                 self.root.after(0, lambda: self._update_preview_status("No file types selected. Please select at least one file type."))
                 return
-                
-            # Check if destination is inside source to avoid processing files in the destination
+
             source_path = Path(source_dir)
-            is_dest_in_source = False
-            if output_dir:
-                output_path = Path(output_dir)
-                try:
-                    # Convert to absolute paths for comparison
-                    abs_source = source_path.resolve()
-                    abs_output = output_path.resolve()
-                    # Check if output is a subdirectory of source
-                    is_dest_in_source = str(abs_output).startswith(str(abs_source))
-                    if is_dest_in_source:
-                        logger.info(f"Destination directory is inside source directory. Will skip files in destination for preview.")
-                except Exception as e:
-                    logger.error(f"Error checking directory relationship: {e}")
+            exclude_unknown = {
+                media_type: self.exclude_unknown_vars[media_type].get()
+                for media_type in self.exclude_unknown_vars
+            }
 
-            # First pass: Count total files for progress tracking
             self.root.after(0, lambda: self.status_var.set("Counting files..."))
-            total_files = 0
-            for file_path in source_path.rglob("*"):
-                # Skip files in the destination directory if it's inside the source
-                if is_dest_in_source and file_path.is_file():
-                    try:
-                        rel_path = file_path.relative_to(source_path)
-                        dest_path = Path(output_dir) / rel_path
-                        if file_path.is_relative_to(Path(output_dir)) or file_path == dest_path:
-                            continue
-                    except (ValueError, RuntimeError):
-                        pass  # Not relative, so continue processing
-                        
-                if file_path.is_file() and file_path.suffix.lower() in selected_extensions:
-                    total_files += 1
-                    if total_files % 100 == 0:  # Update status periodically
-                        self.root.after(0, lambda count=total_files: self.file_var.set(f"Found {count} files..."))
 
-            # Second pass: Process files for preview
+            scan_result = scan_source(
+                source_path,
+                output_dir or None,
+                templates,
+                SUPPORTED_EXTENSIONS,
+                selected_extensions,
+                exclude_unknown,
+                max_files=100,
+            )
+            total_files = scan_result.total_count
+            processed = len(scan_result.plans)
+
+            if total_files > 0:
+                progress = (processed / total_files) * 100
+                self.root.after(0, lambda p=progress: self.progress_var.set(p))
+                self.root.after(
+                    0,
+                    lambda p=processed, t=total_files: self.file_var.set(f"Found {p} of {t} files..."),
+                )
+
             self.root.after(0, lambda: self.status_var.set("Finding file details..."))
-            preview_files = []
-            processed = 0
-            
-            for file_path in source_path.rglob("*"):
-                # Skip files in the destination directory if it's inside the source
-                if is_dest_in_source and file_path.is_file():
-                    try:
-                        rel_path = file_path.relative_to(source_path)
-                        dest_path = Path(output_dir) / rel_path
-                        if file_path.is_relative_to(Path(output_dir)) or file_path == dest_path:
-                            continue
-                    except (ValueError, RuntimeError):
-                        pass  # Not relative, so continue processing
-                        
-                if file_path.is_file() and file_path.suffix.lower() in selected_extensions:
-                    preview_files.append(file_path)
-                    processed += 1
-                    # Update progress every 10 files or for the last file
-                    if processed % 10 == 0 or processed == total_files:
-                        progress = (processed / total_files) * 100 if total_files > 0 else 0
-                        self.root.after(0, lambda p=progress: self.progress_var.set(p))
-                        self.root.after(0, lambda p=processed, t=total_files: 
-                            self.file_var.set(f"Found {p} of {t} files..."))
-                    
-                    if processed >= 100:  # Limit to 100 files for preview
-                        break
-            
-            # Prepare preview data
-            preview_data = []
-            
-            # Generate preview for each file
-            for i, file_path in enumerate(preview_files):
-                try:
-                    # Extract metadata
-                    media_file = MediaFile(file_path, SUPPORTED_EXTENSIONS)
 
-                    # Get the appropriate template for this file type
-                    template = self.organizer.get_template(media_file.file_type)
-                    
-                    # Get exclude_unknown setting for this file type
-                    exclude_unknown = self.exclude_unknown_vars.get(media_file.file_type, tk.BooleanVar(value=False)).get()
-                    
-                    # Generate destination path
-                    rel_path = media_file.get_formatted_path(template, exclude_unknown=exclude_unknown)
-                    
-                    # Get source path for display
+            preview_data = []
+            for plan in scan_result.plans:
+                try:
+                    file_path = plan.source_path
+                    rel_path = plan.destination_path
+
                     if getattr(self, "show_full_paths", False):
                         display_source = str(file_path)
-                        display_dest = str(self.organizer.output_dir / rel_path)
+                        if self.organizer.output_dir:
+                            display_dest = str(self.organizer.output_dir / rel_path)
+                        else:
+                            display_dest = rel_path
                     else:
                         try:
                             display_source = str(file_path.relative_to(source_path))
                             display_dest = rel_path
                         except ValueError:
                             display_source = str(file_path)
-                            display_dest = str(self.organizer.output_dir / rel_path)
-                    
-                    # Add to preview data with the full file path
+                            if self.organizer.output_dir:
+                                display_dest = str(self.organizer.output_dir / rel_path)
+                            else:
+                                display_dest = rel_path
+
                     preview_data.append((display_source, display_dest, str(file_path)))
-                    
                 except Exception as e:
-                    logger.error(f"Error generating preview for {file_path}: {e}")
-            
-            # Update UI in the main thread
+                    logger.error(f"Error generating preview for {plan.source_path}: {e}")
+
             self.root.after(0, lambda: self._update_preview_results(preview_data, processed))
 
         except Exception as e:
@@ -830,6 +1014,14 @@ class ArchimediusGUI:
 
     def _update_preview_results(self, preview_data, count):
         """Update the preview treeview with results from the preview thread."""
+        # Store full preview data for client-side re-filtering
+        self._full_preview_data = list(preview_data)
+        self._full_preview_count = count
+        
+        self._display_preview_data(preview_data, count)
+
+    def _display_preview_data(self, preview_data, count):
+        """Populate the preview treeview with the given data and update status."""
         # Clear existing items
         for item in self.preview_tree.get_children():
             self.preview_tree.delete(item)
@@ -839,10 +1031,8 @@ class ArchimediusGUI:
         
         # Insert preview data into treeview
         for i, (display_source, display_dest, full_path) in enumerate(preview_data):
-            # Use a checkbox for selection (initially unchecked)
             item_id = self.preview_tree.insert("", "end", values=("☐", display_source, display_dest))
             
-            # Store the full file path for later processing
             self.preview_files[item_id] = {
                 "source_path": display_source,
                 "dest_path": display_dest,
@@ -855,12 +1045,9 @@ class ArchimediusGUI:
             self.status_var.set("No media files found in the source directory.")
             self.file_var.set("")
         else:
-            # Count files by media type
             media_types = {}
             for display_source, _, full_path in preview_data:
-                # Get file extension
                 ext = os.path.splitext(full_path)[1].lower()
-                # Determine media type
                 media_type = None
                 for type_name, extensions in SUPPORTED_EXTENSIONS.items():
                     if ext in extensions:
@@ -870,10 +1057,21 @@ class ArchimediusGUI:
                 if media_type:
                     media_types[media_type] = media_types.get(media_type, 0) + 1
             
-            # Create detailed message
             type_counts = ", ".join([f"{count} {media_type}" for media_type, count in media_types.items()])
-            self.status_var.set(f"Preview generated for {count} files.")
+            self.status_var.set(f"Preview generated for {len(preview_data)} files.")
             self.file_var.set(f"Found: {type_counts}")
+
+    def _filter_preview(self):
+        """Re-filter stored preview data by currently selected extensions and refresh the tree."""
+        if not self._full_preview_data:
+            return
+        
+        selected_extensions = self._get_selected_extensions()
+        filtered = [
+            (src, dest, path) for src, dest, path in self._full_preview_data
+            if os.path.splitext(path)[1].lower() in selected_extensions
+        ]
+        self._display_preview_data(filtered, len(filtered))
     
     def _update_preview_status(self, message, error=False):
         """Update the preview status with a message."""
@@ -900,8 +1098,8 @@ class ArchimediusGUI:
         # Auto-save settings if enabled
         if getattr(self, "auto_save_enabled", True):
             self._save_settings()
-        # Auto-generate preview
-        self._auto_generate_preview()
+        # Immediately re-filter existing preview data
+        self._filter_preview()
     
     def _update_extension_selection(self):
         """Update the 'All' checkboxes based on individual selections."""
@@ -911,8 +1109,8 @@ class ArchimediusGUI:
         # Auto-save settings if enabled
         if getattr(self, "auto_save_enabled", True):
             self._save_settings()
-        # Auto-generate preview
-        self._auto_generate_preview()
+        # Immediately re-filter existing preview data
+        self._filter_preview()
     
     def _get_selected_extensions(self):
         """Get a list of all selected file extensions."""
@@ -960,9 +1158,38 @@ class ArchimediusGUI:
         y = (help_window.winfo_screenheight() // 2) - (height // 2)
         help_window.geometry(f"{width}x{height}+{x}+{y}")
         
-        # Create a frame for the content
-        content_frame = ttk.Frame(help_window, padding=20)
-        content_frame.pack(fill=tk.BOTH, expand=True)
+        # Create a scrollable content area so all placeholders are accessible.
+        scroll_container = ttk.Frame(help_window)
+        scroll_container.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(scroll_container, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(
+            scroll_container, orient="vertical", command=canvas.yview
+        )
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        content_frame = ttk.Frame(canvas, padding=20)
+        content_window = canvas.create_window((0, 0), window=content_frame, anchor="nw")
+
+        def _sync_scroll_region(_event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _sync_content_width(event):
+            canvas.itemconfigure(content_window, width=event.width)
+
+        content_frame.bind("<Configure>", _sync_scroll_region)
+        canvas.bind("<Configure>", _sync_content_width)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        help_window.bind(
+            "<Destroy>",
+            lambda _event: canvas.unbind_all("<MouseWheel>"),
+        )
         
         # Title
         title_label = ttk.Label(
@@ -1098,7 +1325,10 @@ class ArchimediusGUI:
     def _create_tooltip(self, widget, text):
         """Create a tooltip for a widget."""
         def enter(_):
-            x, y, _, _ = widget.bbox("insert")
+            try:
+                x, y, _, _ = widget.bbox("insert")
+            except Exception:
+                x, y = 0, 0
             x += widget.winfo_rootx() + 25
             y += widget.winfo_rooty() + 25
             
@@ -1106,10 +1336,31 @@ class ArchimediusGUI:
             self.tooltip = tk.Toplevel(widget)
             self.tooltip.wm_overrideredirect(True)
             self.tooltip.wm_geometry(f"+{x}+{y}")
-            
-            label = ttk.Label(self.tooltip, text=text, justify=tk.LEFT,
-                             background="#ffffe0", relief=tk.SOLID, borderwidth=1,
-                             wraplength=250)
+
+            # Tooltips use tk widgets so colors stay readable in both themes.
+            if self.dark_mode:
+                tooltip_bg = "#2b2b2b"
+                tooltip_fg = "#e6e6e6"
+                tooltip_border = "#4a4a4a"
+            else:
+                tooltip_bg = "#fff8d6"
+                tooltip_fg = "#1a1a1a"
+                tooltip_border = "#c7c7c7"
+
+            label = tk.Label(
+                self.tooltip,
+                text=text,
+                justify=tk.LEFT,
+                bg=tooltip_bg,
+                fg=tooltip_fg,
+                relief=tk.SOLID,
+                borderwidth=1,
+                highlightthickness=1,
+                highlightbackground=tooltip_border,
+                padx=6,
+                pady=4,
+                wraplength=250,
+            )
             label.pack(padx=3, pady=3)
             
         def leave(_):
@@ -1192,6 +1443,10 @@ class ArchimediusGUI:
 
     def _run_organization_with_filters(self, selected_extensions):
         """Run the organization process with the selected file extensions."""
+        self.organizer.stop_requested = False
+        self.organizer.is_running = True
+        self.organizer.files_processed = 0
+
         # Update UI
         self.copy_button.config(state=tk.DISABLED)
         self.move_button.config(state=tk.DISABLED)
@@ -1221,8 +1476,14 @@ class ArchimediusGUI:
                 # Convert to absolute paths for comparison
                 abs_source = source_path.resolve()
                 abs_output = output_path.resolve()
-                # Check if output is a subdirectory of source
-                is_dest_in_source = str(abs_output).startswith(str(abs_source))
+                # Check if output is a true subdirectory of source (not the same directory)
+                is_dest_in_source = False
+                if abs_output != abs_source:
+                    try:
+                        abs_output.relative_to(abs_source)
+                        is_dest_in_source = True
+                    except ValueError:
+                        is_dest_in_source = False
                 if is_dest_in_source:
                     logger.info(f"Destination directory is inside source directory. Will skip files in destination.")
             except Exception as e:
@@ -1301,16 +1562,26 @@ class ArchimediusGUI:
                     
                     # Update progress
                     processed += 1
-                    self._update_progress(processed, total_files, str(file_path))
+                    self.root.after(
+                        0, lambda p=processed, t=total_files, f=str(file_path): self._update_progress(p, t, f)
+                    )
             
             # Complete
-            self._update_progress(processed, total_files, "Complete")
+            self.organizer.files_processed = processed
+            self.root.after(0, lambda p=processed, t=total_files: self._update_progress(p, t, "Complete"))
             operation_name = "copy" if self.organizer.operation_mode == "copy" else "move"
             logger.info(f"{operation_name.capitalize()} operation complete. Processed {processed} files.")
             
         except Exception as e:
             logger.error(f"Error during organization: {e}")
-            messagebox.showerror("Error", f"An error occurred during organization: {str(e)}")
+            self.root.after(
+                0,
+                lambda msg=str(e): messagebox.showerror(
+                    "Error", f"An error occurred during organization: {msg}"
+                ),
+            )
+        finally:
+            self.organizer.is_running = False
     
     def _stop_organization(self):
         """Stop the organization process."""
@@ -1367,6 +1638,8 @@ class ArchimediusGUI:
                 "auto_save_enabled": getattr(self, "auto_save_enabled", True),
                 "auto_preview_enabled": getattr(self, "auto_preview_enabled", True),
                 "logging_level": getattr(self, "logging_level", defaults.DEFAULT_SETTINGS["logging_level"]),
+                "dark_mode": getattr(self, "dark_mode", defaults.DEFAULT_SETTINGS["dark_mode"]),
+                "window_geometry": self.root.geometry(),
                 "operation_mode": getattr(self, "operation_mode", "copy"),
             }
             
@@ -1386,6 +1659,12 @@ class ArchimediusGUI:
                     settings = json.load(f)
                 
                 # Apply settings
+                if "window_geometry" in settings and settings["window_geometry"]:
+                    try:
+                        self.root.geometry(settings["window_geometry"])
+                    except Exception as e:
+                        logger.warning(f"Could not restore saved window size: {e}")
+
                 if "source_dir" in settings and settings["source_dir"]:
                     self.source_entry.delete(0, tk.END)
                     self.source_entry.insert(0, settings["source_dir"])
@@ -1459,6 +1738,9 @@ class ArchimediusGUI:
 
                 # Load logging level setting
                 self.logging_level = settings.get("logging_level", defaults.DEFAULT_SETTINGS["logging_level"])
+                self.dark_mode = settings.get("dark_mode", defaults.DEFAULT_SETTINGS["dark_mode"])
+                self.apply_theme(self.dark_mode)
+                self._sync_inline_preferences_controls()
                 
                 logger.info(f"Settings loaded from {self.config_file}")
                 
@@ -1497,6 +1779,9 @@ class ArchimediusGUI:
                 self.auto_save_enabled = defaults.DEFAULT_SETTINGS["auto_save_enabled"]
                 self.auto_preview_enabled = defaults.DEFAULT_SETTINGS["auto_preview_enabled"]
                 self.logging_level = defaults.DEFAULT_SETTINGS["logging_level"]
+                self.dark_mode = defaults.DEFAULT_SETTINGS["dark_mode"]
+                self.apply_theme(self.dark_mode)
+                self._sync_inline_preferences_controls()
                 
                 # Clear preview
                 self._clear_preview()
@@ -1534,14 +1819,6 @@ class ArchimediusGUI:
     def _show_help(self):
         """Show the Help dialog."""
         HelpDialog(self.root)
-
-    def _show_license_activation(self):
-        """Show the license activation dialog."""
-        self.license_manager.show_activation_dialog(self.root)
-        
-        # Update status bar with license status
-        status_message = self.license_manager.get_status_message()
-        self.status_var.set(f"License: {status_message}")
 
     def _toggle_selection(self, event):
         """Toggle selection of a file in the preview treeview when clicked."""
@@ -1631,6 +1908,9 @@ class ArchimediusGUI:
         self.organizer.set_source_dir(source_dir)
         self.organizer.set_output_dir(output_dir)
         self.organizer.set_operation_mode(mode)
+        self.organizer.stop_requested = False
+        self.organizer.is_running = True
+        self.organizer.files_processed = 0
         
         # Set flag to indicate we're processing selected files
         self.processing_selected_files = True
@@ -1723,6 +2003,7 @@ class ArchimediusGUI:
             error_msg = str(e) if str(e) else "Unknown error"
             self.root.after(0, lambda msg=error_msg: messagebox.showerror("Error", f"An error occurred during processing: {msg}"))
         finally:
+            self.organizer.is_running = False
             # Update UI
             self.root.after(0, lambda: self._update_ui_for_processing(False))
             

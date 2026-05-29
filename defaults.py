@@ -41,6 +41,7 @@ DEFAULT_SETTINGS = {
     "auto_save_enabled": True,
     "auto_preview_enabled": True,
     "logging_level": "INFO",
+    "dark_mode": False,
     "exclude_unknown": DEFAULT_EXCLUDE_UNKNOWN,
 }
 
@@ -66,8 +67,6 @@ DEFAULT_WINDOW_SIZES = {
 DEFAULT_PATHS = {
     "settings_file": "archimedius_settings.json",
     "log_file": "archimedius.log",
-    "license_file": "archimedius_license.json",
-    "trial_file": "archimedius_trial.json",
 }
 
 # Function to get all default extensions

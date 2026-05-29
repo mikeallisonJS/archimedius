@@ -11,10 +11,6 @@ A cross-platform application to organize media files based on their metadata.
 - Cross-platform compatibility using Python's standard libraries
 - Detailed logging of operations
 
-## Purchasing
-
-Archimedius is proprietary software available for purchase. For pricing information, licensing details, and how to buy, please see the [PURCHASING.md](PURCHASING.md) file.
-
 ## Supported File Types
 
 - **Audio**: MP3, FLAC, M4A, AAC, OGG, WAV
@@ -69,6 +65,7 @@ If you prefer to run from source:
 1. Make sure you have Python 3 installed
 2. Install MediaInfo for enhanced video metadata extraction (optional but recommended):
    - Download and install from [MediaInfo website](https://mediaarea.net/en/MediaInfo/Download/Windows)
+   - `run.bat` can also download a local development copy to `tools/mediainfo` if `mediainfo` is not in `PATH`
 3. Clone or download this repository
 4. Install Python dependencies:
    ```bash
@@ -173,6 +170,28 @@ This project uses [Black](https://black.readthedocs.io/) for code formatting and
    python -m black --check .
    ```
 
+### Testing
+
+Tests are stored in the `tests/` directory and can be run from the repository root.
+
+1. Install the test runner (if not already installed):
+
+   ```bash
+   pip install pytest
+   ```
+
+2. Run all tests:
+
+   ```bash
+   python -m pytest tests -v
+   ```
+
+3. Run a single test module:
+
+   ```bash
+   python -m pytest tests/test_imports.py -v
+   ```
+
 ### VSCode Setup
 
 This project includes VSCode configuration for automatic formatting with Black:
@@ -185,4 +204,4 @@ This project includes VSCode configuration for automatic formatting with Black:
 
 ## License
 
-This software is proprietary and is licensed only to the original purchaser. See the [LICENSE](LICENSE) file for the complete terms and conditions.
+This project is licensed under the [MIT License](LICENSE).
