@@ -21,6 +21,7 @@ from log_window import LogWindow
 from preferences_dialog import PreferencesDialog
 from media_file import MediaFile
 from archimedius import Archimedius
+from organize_plan import scan_source
 from about_dialog import AboutDialog
 from help_dialog import HelpDialog
 
@@ -943,96 +944,43 @@ class ArchimediusGUI:
                 # Update UI in the main thread
                 self.root.after(0, lambda: self._update_preview_status("No file types selected. Please select at least one file type."))
                 return
-                
-            # Check if destination is inside source to avoid processing files in the destination
+
             source_path = Path(source_dir)
-            is_dest_in_source = False
-            if output_dir:
-                output_path = Path(output_dir)
-                try:
-                    # Convert to absolute paths for comparison
-                    abs_source = source_path.resolve()
-                    abs_output = output_path.resolve()
-                    # Check if output is a true subdirectory of source (not the same directory)
-                    is_dest_in_source = False
-                    if abs_output != abs_source:
-                        try:
-                            abs_output.relative_to(abs_source)
-                            is_dest_in_source = True
-                        except ValueError:
-                            is_dest_in_source = False
-                    if is_dest_in_source:
-                        logger.info(f"Destination directory is inside source directory. Will skip files in destination for preview.")
-                except Exception as e:
-                    logger.error(f"Error checking directory relationship: {e}")
+            exclude_unknown = {
+                media_type: self.exclude_unknown_vars[media_type].get()
+                for media_type in self.exclude_unknown_vars
+            }
 
-            # First pass: Count total files for progress tracking
             self.root.after(0, lambda: self.status_var.set("Counting files..."))
-            total_files = 0
-            for file_path in source_path.rglob("*"):
-                # Skip files in the destination directory if it's inside the source
-                if is_dest_in_source and file_path.is_file():
-                    try:
-                        rel_path = file_path.relative_to(source_path)
-                        dest_path = Path(output_dir) / rel_path
-                        if file_path.is_relative_to(Path(output_dir)) or file_path == dest_path:
-                            continue
-                    except (ValueError, RuntimeError):
-                        pass  # Not relative, so continue processing
-                        
-                if file_path.is_file() and file_path.suffix.lower() in selected_extensions:
-                    total_files += 1
-                    if total_files % 100 == 0:  # Update status periodically
-                        self.root.after(0, lambda count=total_files: self.file_var.set(f"Found {count} files..."))
 
-            # Second pass: Process files for preview
+            scan_result = scan_source(
+                source_path,
+                output_dir or None,
+                templates,
+                SUPPORTED_EXTENSIONS,
+                selected_extensions,
+                exclude_unknown,
+                max_files=100,
+            )
+            total_files = scan_result.total_count
+            processed = len(scan_result.plans)
+
+            if total_files > 0:
+                progress = (processed / total_files) * 100
+                self.root.after(0, lambda p=progress: self.progress_var.set(p))
+                self.root.after(
+                    0,
+                    lambda p=processed, t=total_files: self.file_var.set(f"Found {p} of {t} files..."),
+                )
+
             self.root.after(0, lambda: self.status_var.set("Finding file details..."))
-            preview_files = []
-            processed = 0
-            
-            for file_path in source_path.rglob("*"):
-                # Skip files in the destination directory if it's inside the source
-                if is_dest_in_source and file_path.is_file():
-                    try:
-                        rel_path = file_path.relative_to(source_path)
-                        dest_path = Path(output_dir) / rel_path
-                        if file_path.is_relative_to(Path(output_dir)) or file_path == dest_path:
-                            continue
-                    except (ValueError, RuntimeError):
-                        pass  # Not relative, so continue processing
-                        
-                if file_path.is_file() and file_path.suffix.lower() in selected_extensions:
-                    preview_files.append(file_path)
-                    processed += 1
-                    # Update progress every 10 files or for the last file
-                    if processed % 10 == 0 or processed == total_files:
-                        progress = (processed / total_files) * 100 if total_files > 0 else 0
-                        self.root.after(0, lambda p=progress: self.progress_var.set(p))
-                        self.root.after(0, lambda p=processed, t=total_files: 
-                            self.file_var.set(f"Found {p} of {t} files..."))
-                    
-                    if processed >= 100:  # Limit to 100 files for preview
-                        break
-            
-            # Prepare preview data
-            preview_data = []
-            
-            # Generate preview for each file
-            for i, file_path in enumerate(preview_files):
-                try:
-                    # Extract metadata
-                    media_file = MediaFile(file_path, SUPPORTED_EXTENSIONS)
 
-                    # Get the appropriate template for this file type
-                    template = self.organizer.get_template(media_file.file_type)
-                    
-                    # Get exclude_unknown setting for this file type
-                    exclude_unknown = self.exclude_unknown_vars.get(media_file.file_type, tk.BooleanVar(value=False)).get()
-                    
-                    # Generate destination path
-                    rel_path = media_file.get_formatted_path(template, exclude_unknown=exclude_unknown)
-                    
-                    # Get source path for display
+            preview_data = []
+            for plan in scan_result.plans:
+                try:
+                    file_path = plan.source_path
+                    rel_path = plan.destination_path
+
                     if getattr(self, "show_full_paths", False):
                         display_source = str(file_path)
                         if self.organizer.output_dir:
@@ -1049,14 +997,11 @@ class ArchimediusGUI:
                                 display_dest = str(self.organizer.output_dir / rel_path)
                             else:
                                 display_dest = rel_path
-                    
-                    # Add to preview data with the full file path
+
                     preview_data.append((display_source, display_dest, str(file_path)))
-                    
                 except Exception as e:
-                    logger.error(f"Error generating preview for {file_path}: {e}")
-            
-            # Update UI in the main thread
+                    logger.error(f"Error generating preview for {plan.source_path}: {e}")
+
             self.root.after(0, lambda: self._update_preview_results(preview_data, processed))
 
         except Exception as e:
