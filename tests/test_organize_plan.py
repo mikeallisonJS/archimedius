@@ -5,6 +5,7 @@ Unit tests for headless source scan and destination path planning.
 
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import extensions
 import pytest
@@ -225,3 +226,53 @@ def test_scan_source_uses_shared_media_file_resolver(tmp_path: Path):
     expected = media.get_formatted_path("{artist}/{title}", exclude_unknown=True)
 
     assert plan.destination_path == expected
+
+
+def test_scan_source_raises_when_source_missing(tmp_path: Path):
+    missing = tmp_path / "missing"
+
+    with pytest.raises(ValueError, match="does not exist"):
+        scan_source(
+            missing,
+            None,
+            TEMPLATES,
+            SUPPORTED,
+            selected_extensions={".mp3"},
+            exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+        )
+
+
+def test_scan_source_raises_when_source_is_not_directory(tmp_path: Path):
+    file_path = tmp_path / "not-a-dir.mp3"
+    _touch(file_path)
+
+    with pytest.raises(ValueError, match="not a directory"):
+        scan_source(
+            file_path,
+            None,
+            TEMPLATES,
+            SUPPORTED,
+            selected_extensions={".mp3"},
+            exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+        )
+
+
+def test_iter_matching_files_skips_inaccessible_paths(tmp_path: Path):
+    source = tmp_path / "source"
+    _touch(source / "good.mp3")
+    _touch(source / "bad.mp3")
+    original_is_file = Path.is_file
+
+    def selective_is_file(self, *args, **kwargs):
+        if self.name == "bad.mp3":
+            raise PermissionError("access denied")
+        return original_is_file(self, *args, **kwargs)
+
+    with patch.object(Path, "is_file", selective_is_file):
+        matches = iter_matching_files(
+            source,
+            selected_extensions={".mp3"},
+            supported_extensions=SUPPORTED,
+        )
+
+    assert [path.name for path in matches] == ["good.mp3"]

@@ -8,11 +8,14 @@ and template-based destination path resolution.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
 from media_file import MediaFile
+
+logger = logging.getLogger("Archimedius")
 
 MediaFileFactory = Callable[[Path, Mapping[str, Sequence[str]]], MediaFile]
 
@@ -78,12 +81,14 @@ def should_skip_file_under_destination(
     dest_in_source: bool,
 ) -> bool:
     """Return True when a file lives under the destination tree inside source."""
-    if not dest_in_source or not file_path.is_file():
+    if not dest_in_source:
         return False
 
     try:
+        if not file_path.is_file():
+            return False
         return file_path.is_relative_to(destination)
-    except ValueError:
+    except (PermissionError, OSError, ValueError):
         return False
 
 
@@ -109,25 +114,29 @@ def iter_matching_files(
     matches: list[Path] = []
 
     for file_path in source.rglob("*"):
-        if not file_path.is_file():
-            continue
+        try:
+            if not file_path.is_file():
+                continue
 
-        suffix = file_path.suffix.lower()
-        if suffix not in selected:
-            continue
+            suffix = file_path.suffix.lower()
+            if suffix not in selected:
+                continue
 
-        if suffix not in recognized:
-            continue
+            if suffix not in recognized:
+                continue
 
-        if destination is not None and should_skip_file_under_destination(
-            file_path,
-            source,
-            destination,
-            dest_in_source=dest_in_source,
-        ):
-            continue
+            if destination is not None and should_skip_file_under_destination(
+                file_path,
+                source,
+                destination,
+                dest_in_source=dest_in_source,
+            ):
+                continue
 
-        matches.append(file_path)
+            matches.append(file_path)
+        except (PermissionError, OSError) as exc:
+            logger.debug("Skipping inaccessible path during scan: %s (%s)", file_path, exc)
+            continue
 
     return matches
 
@@ -181,6 +190,11 @@ def scan_source(
         ScanResult with plans (possibly limited) and total matching file count.
     """
     source_path = Path(source)
+    if not source_path.exists():
+        raise ValueError(f"Source path does not exist: {source_path}")
+    if not source_path.is_dir():
+        raise ValueError(f"Source path is not a directory: {source_path}")
+
     destination_path = Path(destination) if destination else None
 
     matching_files = iter_matching_files(
