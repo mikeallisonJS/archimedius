@@ -12,8 +12,6 @@ from pathlib import Path
 from datetime import datetime
 import json
 
-# Import the MediaFile class
-from media_file import MediaFile
 # Import the defaults module
 import defaults
 

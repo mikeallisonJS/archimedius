@@ -7,7 +7,7 @@ def test_imports():
     """Test that all main modules can be imported."""
     try:
         import archimedius
-        import media_file
+        import organize_plan
         import defaults
         import log_window
         import settings
