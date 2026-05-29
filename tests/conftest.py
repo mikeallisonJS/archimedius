@@ -4,10 +4,28 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 root_str = str(ROOT)
 if root_str not in sys.path:
     sys.path.insert(0, root_str)
+
+
+@pytest.fixture(scope="session")
+def tk_root():
+    """A single hidden Tk root shared across the whole test session.
+
+    Creating and destroying multiple Tk interpreters within one process can
+    fail to re-initialize the Tcl/Tk library on some platforms, so GUI tests
+    must share this one root rather than each spinning up their own.
+    """
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.withdraw()
+    yield root
+    root.destroy()
 
 
 def write_minimal_epub(epub_path: Path) -> None:

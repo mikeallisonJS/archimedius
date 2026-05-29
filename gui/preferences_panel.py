@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -9,10 +10,11 @@ from typing import TYPE_CHECKING
 
 import defaults
 from gui.media_type_config import MEDIA_TYPE_TAB_LABELS
-from settings import MEDIA_TYPES
+from settings import MEDIA_TYPES, _normalize_collision_policy
 
 if TYPE_CHECKING:
     from archimedius_gui import ArchimediusGUI
+    from settings import Settings
 
 logger = logging.getLogger("Archimedius")
 
@@ -163,15 +165,35 @@ class PreferencesPanel:
                 command=lambda mt=media_type: self.reset_extensions_to_default(mt),
             ).pack(anchor=tk.E, pady=5)
 
-    def bind_to_app(self) -> None:
+    def read_settings(self, settings: Settings) -> None:
+        """Read the preferences slice into *settings*.
+
+        General preferences are read from the application's committed attributes
+        (kept in sync by :meth:`apply_general_preferences`); the supported
+        extension lists come from the in-memory model (committed on Save).
+        """
         app = self.app
-        app.pref_auto_preview_var = self.pref_auto_preview_var
-        app.pref_auto_save_var = self.pref_auto_save_var
-        app.pref_show_full_paths_var = self.pref_show_full_paths_var
-        app.pref_dark_mode_var = self.pref_dark_mode_var
-        app.pref_logging_level_var = self.pref_logging_level_var
-        app.pref_collision_policy_var = self.pref_collision_policy_var
-        app.pref_extension_texts = self.pref_extension_texts
+        settings.supported_extensions = copy.deepcopy(app.settings.supported_extensions)
+        settings.show_full_paths = getattr(
+            app, "show_full_paths", defaults.DEFAULT_SETTINGS["show_full_paths"]
+        )
+        settings.auto_save_enabled = getattr(
+            app, "auto_save_enabled", defaults.DEFAULT_SETTINGS["auto_save_enabled"]
+        )
+        settings.auto_preview_enabled = getattr(
+            app, "auto_preview_enabled", defaults.DEFAULT_SETTINGS["auto_preview_enabled"]
+        )
+        settings.logging_level = getattr(
+            app, "logging_level", defaults.DEFAULT_SETTINGS["logging_level"]
+        )
+        settings.dark_mode = getattr(app, "dark_mode", defaults.DEFAULT_SETTINGS["dark_mode"])
+        settings.collision_policy = _normalize_collision_policy(
+            getattr(app, "collision_policy", defaults.DEFAULT_SETTINGS["collision_policy"])
+        )
+
+    def apply_settings(self, settings: Settings) -> None:
+        """Sync the preference controls from the application's committed state."""
+        self.sync_controls()
 
     def reset_extensions_to_default(self, media_type: str) -> None:
         default_extensions = [
