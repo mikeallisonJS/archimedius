@@ -9,6 +9,7 @@ and template-based destination path resolution.
 from __future__ import annotations
 
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
@@ -254,3 +255,112 @@ def scan_source(
     ]
 
     return ScanResult(plans=plans, total_count=total_count)
+
+
+@dataclass(frozen=True)
+class PlanTransferOutcome:
+    """Result of transferring one planned file."""
+
+    plan: FilePlan
+    destination_path: Path | None
+    error: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.error is None
+
+
+@dataclass(frozen=True)
+class OrganizeResult:
+    """Result of executing one or more file plans."""
+
+    outcomes: list[PlanTransferOutcome]
+    stopped_early: bool = False
+
+    @property
+    def attempted(self) -> int:
+        return len(self.outcomes)
+
+    @property
+    def successful(self) -> int:
+        return sum(1 for outcome in self.outcomes if outcome.success)
+
+
+def build_plans_for_paths(
+    source_paths: Iterable[str | Path],
+    *,
+    templates: Mapping[str, str],
+    supported_extensions: Mapping[str, Sequence[str]],
+    exclude_unknown: Mapping[str, bool],
+    media_file_factory: MediaFileFactory = MediaFile,
+) -> list[FilePlan]:
+    """Build destination path plans for explicit source file paths."""
+    return [
+        build_file_plan(
+            Path(source_path),
+            templates=templates,
+            supported_extensions=supported_extensions,
+            exclude_unknown=exclude_unknown,
+            media_file_factory=media_file_factory,
+        )
+        for source_path in source_paths
+    ]
+
+
+def transfer_plan(
+    plan: FilePlan,
+    output_root: str | Path,
+    operation_mode: str,
+) -> Path:
+    """
+    Copy or move one planned file under output_root.
+
+    Returns the absolute destination path written.
+    """
+    if operation_mode not in ("copy", "move"):
+        raise ValueError("operation_mode must be 'copy' or 'move'")
+
+    source_path = plan.source_path
+    destination_path = Path(output_root) / plan.destination_path
+
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Source file does not exist: {source_path}")
+
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if operation_mode == "copy":
+        shutil.copy2(source_path, destination_path)
+    else:
+        shutil.move(source_path, destination_path)
+
+    return destination_path
+
+
+def execute_plans(
+    plans: Sequence[FilePlan],
+    output_root: str | Path,
+    *,
+    operation_mode: str,
+    should_stop: Callable[[], bool] | None = None,
+    on_each: Callable[[FilePlan, PlanTransferOutcome], None] | None = None,
+) -> OrganizeResult:
+    """Execute copy or move for each plan, continuing after per-file errors."""
+    outcomes: list[PlanTransferOutcome] = []
+    stopped_early = False
+
+    for plan in plans:
+        if should_stop and should_stop():
+            stopped_early = True
+            break
+
+        try:
+            destination_path = transfer_plan(plan, output_root, operation_mode)
+            outcome = PlanTransferOutcome(plan, destination_path)
+        except (OSError, ValueError) as exc:
+            outcome = PlanTransferOutcome(plan, None, str(exc))
+
+        outcomes.append(outcome)
+        if on_each is not None:
+            on_each(plan, outcome)
+
+    return OrganizeResult(outcomes=outcomes, stopped_early=stopped_early)
