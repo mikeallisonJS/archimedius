@@ -402,18 +402,32 @@ def test_transfer_plan_rejects_invalid_operation_mode(tmp_path: Path):
 def test_build_file_plan_falls_back_to_audio_template_for_missing_media_type(
     tmp_path: Path,
 ):
-    # Migrated from the former Archimedius.get_template audio fallback.
-    audio_path = tmp_path / "source" / "song.mp3"
-    _touch(audio_path)
+    # Migrated from the former Archimedius.get_template audio fallback: when the
+    # detected media_type has no template, build_file_plan uses the audio one.
+    # Force a non-"audio" media_type so the fallback branch is actually taken.
+    media_path = tmp_path / "source" / "clip.mp4"
+    _touch(media_path)
+
+    def stub_metadata_extractor(file_path, supported_extensions):
+        return "video", {"filename_with_extension": "clip.mp4", "extension": "mp4"}
+
+    used_templates = []
+
+    def stub_path_resolver(metadata, media_type, template, exclude_unknown=False):
+        used_templates.append(template)
+        return "Planned/clip.mp4"
 
     plan = build_file_plan(
-        audio_path,
+        media_path,
         templates={"audio": "AudioFallback/{filename}"},
         supported_extensions=SUPPORTED,
         exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+        metadata_extractor=stub_metadata_extractor,
+        path_resolver=stub_path_resolver,
     )
 
-    assert plan.destination_path == os.path.join("AudioFallback", "song.mp3")
+    assert plan.media_type == "video"
+    assert used_templates == ["AudioFallback/{filename}"]
 
 
 def test_execute_plans_copy_mode_end_to_end(tmp_path: Path):
