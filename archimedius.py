@@ -16,8 +16,6 @@ import json
 from media_file import MediaFile
 # Import the defaults module
 import defaults
-# Import the extensions module
-import extensions
 
 # Configure logging
 logger = logging.getLogger("Archimedius")

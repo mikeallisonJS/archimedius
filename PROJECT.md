@@ -34,8 +34,7 @@ The application follows a modular architecture with clear separation of concerns
 
 ### Support Modules
 
-- **`defaults.py`**: Default settings, templates, and constants
-- **`extensions.py`**: Supported file extensions for different media types
+- **`defaults.py`**: Default settings, templates, supported extensions, and constants
 - **`log_window.py`**: Logging interface for the application
 - **`settings.py`**: Settings model and persistence for user preferences
 

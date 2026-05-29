@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import defaults
-import extensions
 
 MEDIA_TYPES = ("audio", "video", "image", "ebook")
 LOGGER_NAME = "Archimedius"
@@ -26,7 +25,7 @@ def settings_path() -> Path:
 
 
 def _default_supported_extensions() -> dict[str, list[str]]:
-    return defaults.get_default_extensions()
+    return copy.deepcopy(defaults.DEFAULT_EXTENSIONS)
 
 
 def _default_extension_selections(
@@ -147,7 +146,7 @@ def default_settings() -> Settings:
 def _merge_custom_extensions(
     custom_extensions: Mapping[str, Any] | None,
 ) -> dict[str, list[str]]:
-    merged = extensions.DEFAULT_EXTENSIONS.copy()
+    merged = copy.deepcopy(defaults.DEFAULT_EXTENSIONS)
     if not custom_extensions:
         return merged
     for media_type, exts in custom_extensions.items():

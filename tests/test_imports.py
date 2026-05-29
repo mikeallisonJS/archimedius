@@ -8,7 +8,6 @@ def test_imports():
     try:
         import archimedius
         import media_file
-        import extensions
         import defaults
         import log_window
         import settings
@@ -27,17 +26,11 @@ def test_defaults():
     assert "video" in defaults.DEFAULT_TEMPLATES
     assert "image" in defaults.DEFAULT_TEMPLATES
     assert "ebook" in defaults.DEFAULT_TEMPLATES
+    assert isinstance(defaults.DEFAULT_EXTENSIONS, dict)
+    assert "audio" in defaults.DEFAULT_EXTENSIONS
+    assert "video" in defaults.DEFAULT_EXTENSIONS
+    assert "image" in defaults.DEFAULT_EXTENSIONS
+    assert "ebook" in defaults.DEFAULT_EXTENSIONS
 
-def test_extensions():
-    """Test that extensions module contains expected values."""
-    import extensions
-    
-    assert isinstance(extensions.DEFAULT_EXTENSIONS, dict)
-    assert "audio" in extensions.DEFAULT_EXTENSIONS
-    assert "video" in extensions.DEFAULT_EXTENSIONS
-    assert "image" in extensions.DEFAULT_EXTENSIONS
-    assert "ebook" in extensions.DEFAULT_EXTENSIONS
-    
-    # Check that each category has at least one extension
-    for category, extensions_list in extensions.DEFAULT_EXTENSIONS.items():
-        assert len(extensions_list) > 0 
+    for _category, extensions_list in defaults.DEFAULT_EXTENSIONS.items():
+        assert len(extensions_list) > 0

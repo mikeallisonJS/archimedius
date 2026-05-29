@@ -5,8 +5,6 @@ This module defines all default values used throughout the application.
 Centralizing these values makes the application more maintainable and configurable.
 """
 
-# Import the extensions module to access DEFAULT_EXTENSIONS
-import extensions
 import logging
 
 # Application information
@@ -15,6 +13,14 @@ APP_VERSION = "0.1.4"
 APP_AUTHOR = "Mike Allison"
 APP_WEBSITE = "https://mikeallisonjs.com"
 APP_EMAIL = "support@mikeallisonjs.com"
+
+# Default supported file extensions for each media type
+DEFAULT_EXTENSIONS = {
+    "audio": [".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wav"],
+    "video": [".mp4", ".mkv", ".avi", ".mov", ".wmv"],
+    "image": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"],
+    "ebook": [".epub", ".pdf", ".mobi", ".azw", ".azw3", ".fb2"],
+}
 
 # Default templates for each media type
 DEFAULT_TEMPLATES = {
@@ -67,8 +73,3 @@ DEFAULT_PATHS = {
     "settings_file": "archimedius_settings.json",
     "log_file": "archimedius.log",
 }
-
-# Function to get all default extensions
-def get_default_extensions():
-    """Get a copy of the default extensions dictionary."""
-    return extensions.DEFAULT_EXTENSIONS.copy() 
