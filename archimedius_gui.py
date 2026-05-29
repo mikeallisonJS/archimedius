@@ -34,6 +34,10 @@ from organize_plan import (
 )
 from about_dialog import AboutDialog
 from collision_dialog import CollisionPromptDialog
+from gui.extension_filter_panel import ExtensionFilterPanel
+from gui.preferences_panel import PreferencesPanel
+from gui.preview_panel import PreviewPanel
+from gui.template_panel import TemplatePanel
 from help_dialog import HelpDialog
 
 # Configure logging
@@ -57,13 +61,6 @@ class ArchimediusGUI:
         self.settings = default_settings()
         sync_gui_from_settings(self, self.settings)
         self.style = Style()
-        
-        # Create variables for extension filters
-        self.extension_vars = {"audio": {}, "video": {}, "image": {}, "ebook": {}}
-        
-        # Stored preview data for client-side re-filtering when extensions change
-        self._full_preview_data = []
-        self._full_preview_count = 0
         
         # Config file path
         self.config_file = settings_path()
@@ -90,6 +87,22 @@ class ArchimediusGUI:
         
         # Log startup
         logger.info("Archimedius started")
+
+    @property
+    def _full_preview_data(self):
+        return self.preview_panel.full_preview_data
+
+    @_full_preview_data.setter
+    def _full_preview_data(self, value):
+        self.preview_panel.full_preview_data = value
+
+    @property
+    def _full_preview_count(self):
+        return self.preview_panel.full_preview_count
+
+    @_full_preview_count.setter
+    def _full_preview_count(self, value):
+        self.preview_panel.full_preview_count = value
 
     def apply_theme(self, dark_mode):
         """Apply ttkbootstrap theme based on dark mode."""
@@ -255,364 +268,22 @@ class ArchimediusGUI:
         content_tabs.add(file_types_tab, text="File Type Filters")
         content_tabs.add(preferences_tab, text="Preferences")
         content_tabs.select(preview_tab)
-        self._create_preferences_tab(preferences_tab)
 
-        # Create a frame for each file type category
-        self.file_types_frame = ttk.Frame(file_types_tab)
-        self.file_types_frame.pack(fill=tk.X, pady=2)
-        
-        # Audio extensions
-        audio_frame = ttk.LabelFrame(self.file_types_frame, text="Audio")
-        audio_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        
-        # Create "Select All" checkbox for audio
-        self.audio_all_var = tk.BooleanVar(value=True)
-        audio_all_cb = ttk.Checkbutton(
-            audio_frame, 
-            text="All Audio", 
-            variable=self.audio_all_var,
-            command=lambda: self._toggle_all_extensions("audio"),
-        )
-        audio_all_cb.pack(anchor=tk.W)
-        
-        # Create individual checkboxes for audio extensions
-        audio_extensions_frame = ttk.Frame(audio_frame)
-        audio_extensions_frame.pack(fill=tk.X, padx=10)
-        
-        for i, ext in enumerate(self.settings.supported_extensions["audio"]):
-            ext_name = ext.lstrip(".")
-            var = tk.BooleanVar(value=True)
-            self.extension_vars["audio"][ext] = var
-            cb = ttk.Checkbutton(
-                audio_extensions_frame, 
-                text=ext_name, 
-                variable=var,
-                command=self._update_extension_selection,
-            )
-            cb.grid(row=i // 2, column=i % 2, sticky=tk.W, padx=5)
-        
-        # Video extensions
-        video_frame = ttk.LabelFrame(self.file_types_frame, text="Video")
-        video_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        
-        # Create "Select All" checkbox for video
-        self.video_all_var = tk.BooleanVar(value=True)
-        video_all_cb = ttk.Checkbutton(
-            video_frame, 
-            text="All Video", 
-            variable=self.video_all_var,
-            command=lambda: self._toggle_all_extensions("video"),
-        )
-        video_all_cb.pack(anchor=tk.W)
-        
-        # Create individual checkboxes for video extensions
-        video_extensions_frame = ttk.Frame(video_frame)
-        video_extensions_frame.pack(fill=tk.X, padx=10)
-        
-        for i, ext in enumerate(self.settings.supported_extensions["video"]):
-            ext_name = ext.lstrip(".")
-            var = tk.BooleanVar(value=True)
-            self.extension_vars["video"][ext] = var
-            cb = ttk.Checkbutton(
-                video_extensions_frame, 
-                text=ext_name, 
-                variable=var,
-                command=self._update_extension_selection,
-            )
-            cb.grid(row=i // 2, column=i % 2, sticky=tk.W, padx=5)
-        
-        # Image extensions
-        image_frame = ttk.LabelFrame(self.file_types_frame, text="Image")
-        image_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        
-        # Create "Select All" checkbox for image
-        self.image_all_var = tk.BooleanVar(value=True)
-        image_all_cb = ttk.Checkbutton(
-            image_frame, 
-            text="All Images", 
-            variable=self.image_all_var,
-            command=lambda: self._toggle_all_extensions("image"),
-        )
-        image_all_cb.pack(anchor=tk.W)
-        
-        # Create individual checkboxes for image extensions
-        image_extensions_frame = ttk.Frame(image_frame)
-        image_extensions_frame.pack(fill=tk.X, padx=10)
-        
-        for i, ext in enumerate(self.settings.supported_extensions["image"]):
-            ext_name = ext.lstrip(".")
-            var = tk.BooleanVar(value=True)
-            self.extension_vars["image"][ext] = var
-            cb = ttk.Checkbutton(
-                image_extensions_frame, 
-                text=ext_name, 
-                variable=var,
-                command=self._update_extension_selection,
-            )
-            cb.grid(row=i // 2, column=i % 2, sticky=tk.W, padx=5)
+        self.extension_filter_panel = ExtensionFilterPanel(self)
+        self.extension_filter_panel.build(file_types_tab)
+        self.extension_filter_panel.bind_to_app()
 
-        # eBook extensions
-        ebook_frame = ttk.LabelFrame(self.file_types_frame, text="eBook")
-        ebook_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        self.template_panel = TemplatePanel(self)
+        self.template_panel.build(templates_tab)
+        self.template_panel.bind_to_app()
 
-        # Create "Select All" checkbox for eBook
-        self.ebook_all_var = tk.BooleanVar(value=True)
-        ebook_all_cb = ttk.Checkbutton(
-            ebook_frame,
-            text="All eBooks",
-            variable=self.ebook_all_var,
-            command=lambda: self._toggle_all_extensions("ebook"),
-        )
-        ebook_all_cb.pack(anchor=tk.W)
+        self.preview_panel = PreviewPanel(self)
+        self.preview_panel.build(preview_tab)
+        self.preview_panel.bind_to_app()
 
-        # Create individual checkboxes for eBook extensions
-        ebook_extensions_frame = ttk.Frame(ebook_frame)
-        ebook_extensions_frame.pack(fill=tk.X, padx=10)
-
-        for i, ext in enumerate(self.settings.supported_extensions["ebook"]):
-            ext_name = ext.lstrip(".")
-            var = tk.BooleanVar(value=True)
-            self.extension_vars["ebook"][ext] = var
-            cb = ttk.Checkbutton(
-                ebook_extensions_frame,
-                text=ext_name,
-                variable=var,
-                command=self._update_extension_selection,
-            )
-            cb.grid(row=i // 2, column=i % 2, sticky=tk.W, padx=5)
-        
-        # Template configuration (no extra section wrapper)
-        template_frame = ttk.Frame(templates_tab, padding=5)
-        template_frame.pack(fill=tk.BOTH, expand=True, pady=2)
-        
-        template_header_frame = ttk.Frame(template_frame)
-        template_header_frame.pack(fill=tk.X, pady=2)
-        
-        ttk.Label(template_header_frame, text="Use {placeholders} for metadata fields:").pack(
-            side=tk.LEFT
-        )
-        
-        # Help button for placeholders
-        help_button = ttk.Button(
-            template_header_frame, text="Placeholders Help", command=self._show_placeholders_help
-        )
-        help_button.pack(side=tk.RIGHT)
-        
-        # Create a notebook for different media type templates
-        template_notebook = ttk.Notebook(template_frame)
-        template_notebook.pack(fill=tk.X, pady=2)
-
-        # Audio template tab
-        audio_template_frame = ttk.Frame(template_notebook, padding=2)
-        template_notebook.add(audio_template_frame, text="Audio")
-
-        # Video template tab
-        video_template_frame = ttk.Frame(template_notebook, padding=2)
-        template_notebook.add(video_template_frame, text="Video")
-
-        # Image template tab
-        image_template_frame = ttk.Frame(template_notebook, padding=2)
-        template_notebook.add(image_template_frame, text="Image")
-
-        # eBook template tab
-        ebook_template_frame = ttk.Frame(template_notebook, padding=2)
-        template_notebook.add(ebook_template_frame, text="eBook")
-
-        # Create template variables and entries for each media type
-        self.template_vars = {}
-        self.template_entries = {}
-        # Variables for exclude unknown options
-        self.exclude_unknown_vars = {}
-
-        # Initialize exclude unknown variables with default values from defaults.py
-        for media_type in ["audio", "video", "image", "ebook"]:
-            self.exclude_unknown_vars[media_type] = tk.BooleanVar(value=defaults.DEFAULT_EXCLUDE_UNKNOWN[media_type])
-
-        # Audio template
-        self.template_vars["audio"] = tk.StringVar(value=self.organizer.templates["audio"])
-        self.template_vars["audio"].trace_add(
-            "write", lambda *_: self._on_template_change("audio")
-        )
-        ttk.Label(audio_template_frame, text="Audio Template:").pack(anchor=tk.W)
-        self.template_entries["audio"] = ttk.Entry(
-            audio_template_frame, textvariable=self.template_vars["audio"]
-        )
-        self.template_entries["audio"].pack(fill=tk.X, pady=1)
-        ttk.Label(
-            audio_template_frame, text="Example: {file_type}/{artist}/{album}/{filename}"
-        ).pack(anchor=tk.W)
-        # Add exclude unknown checkbox
-        self.exclude_unknown_vars["audio"].trace_add(
-            "write", lambda *_: self._on_template_change("audio")
-        )
-        ttk.Checkbutton(
-            audio_template_frame, 
-            text="Exclude 'Unknown' folders from path", 
-            variable=self.exclude_unknown_vars["audio"]
-        ).pack(anchor=tk.W, pady=(5, 0))
-
-        # Video template
-        self.template_vars["video"] = tk.StringVar(value=self.organizer.templates["video"])
-        self.template_vars["video"].trace_add(
-            "write", lambda *_: self._on_template_change("video")
-        )
-        ttk.Label(video_template_frame, text="Video Template:").pack(anchor=tk.W)
-        self.template_entries["video"] = ttk.Entry(
-            video_template_frame, textvariable=self.template_vars["video"]
-        )
-        self.template_entries["video"].pack(fill=tk.X, pady=1)
-        ttk.Label(video_template_frame, text="Example: {file_type}/{year}/{filename}").pack(
-            anchor=tk.W
-        )
-        # Add exclude unknown checkbox
-        self.exclude_unknown_vars["video"].trace_add(
-            "write", lambda *_: self._on_template_change("video")
-        )
-        ttk.Checkbutton(
-            video_template_frame, 
-            text="Exclude 'Unknown' folders from path", 
-            variable=self.exclude_unknown_vars["video"]
-        ).pack(anchor=tk.W, pady=(5, 0))
-
-        # Image template
-        self.template_vars["image"] = tk.StringVar(value=self.organizer.templates["image"])
-        self.template_vars["image"].trace_add(
-            "write", lambda *_: self._on_template_change("image")
-        )
-        ttk.Label(image_template_frame, text="Image Template:").pack(anchor=tk.W)
-        self.template_entries["image"] = ttk.Entry(
-            image_template_frame, textvariable=self.template_vars["image"]
-        )
-        self.template_entries["image"].pack(fill=tk.X, pady=1)
-        ttk.Label(
-            image_template_frame,
-            text="Example: {file_type}/{creation_year}/{creation_month_name}/{filename}",
-        ).pack(anchor=tk.W)
-        # Add exclude unknown checkbox
-        self.exclude_unknown_vars["image"].trace_add(
-            "write", lambda *_: self._on_template_change("image")
-        )
-        ttk.Checkbutton(
-            image_template_frame, 
-            text="Exclude 'Unknown' folders from path", 
-            variable=self.exclude_unknown_vars["image"]
-        ).pack(anchor=tk.W, pady=(5, 0))
-
-        # eBook template
-        self.template_vars["ebook"] = tk.StringVar(value=self.organizer.templates["ebook"])
-        self.template_vars["ebook"].trace_add(
-            "write", lambda *_: self._on_template_change("ebook")
-        )
-        ttk.Label(ebook_template_frame, text="eBook Template:").pack(anchor=tk.W)
-        self.template_entries["ebook"] = ttk.Entry(
-            ebook_template_frame, textvariable=self.template_vars["ebook"]
-        )
-        self.template_entries["ebook"].pack(fill=tk.X, pady=1)
-        ttk.Label(
-            ebook_template_frame,
-            text="Example: {file_type}/{author}/{title}/{filename}",
-        ).pack(anchor=tk.W)
-        # Add exclude unknown checkbox
-        self.exclude_unknown_vars["ebook"].trace_add(
-            "write", lambda *_: self._on_template_change("ebook")
-        )
-        ttk.Checkbutton(
-            ebook_template_frame, 
-            text="Exclude 'Unknown' folders from path", 
-            variable=self.exclude_unknown_vars["ebook"]
-        ).pack(anchor=tk.W, pady=(5, 0))
-
-        # For backward compatibility
-        self.template_var = self.template_vars["audio"]
-
-        # Preview tab content (no extra wrapper)
-        preview_frame = ttk.Frame(preview_tab, padding=5)
-        preview_frame.pack(fill=tk.BOTH, expand=True, pady=2)
-
-        # Add a button frame at the top of the preview
-        self.preview_button_frame = ttk.Frame(preview_frame)
-        self.preview_button_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        # Add Analyze button
-        analyze_button = ttk.Button(
-            self.preview_button_frame, text="Analyze", command=self._generate_preview
-        )
-        analyze_button.pack(side=tk.LEFT, padx=5)
-        self._create_tooltip(analyze_button, "Refresh the preview based on current settings")
-        
-        # Add Copy Selected button
-        copy_selected_button = ttk.Button(
-            self.preview_button_frame, text="Copy Selected", command=lambda: self._process_selected_files("copy")
-        )
-        copy_selected_button.pack(side=tk.LEFT, padx=5)
-        self._create_tooltip(copy_selected_button, "Copy only the selected files to the destination")
-        
-        # Add Move Selected button
-        move_selected_button = ttk.Button(
-            self.preview_button_frame, text="Move Selected", command=lambda: self._process_selected_files("move")
-        )
-        move_selected_button.pack(side=tk.LEFT, padx=5)
-        self._create_tooltip(move_selected_button, "Move only the selected files to the destination")
-        
-        # Add Select All button
-        select_all_button = ttk.Button(
-            self.preview_button_frame, text="Select All", command=self._select_all_files
-        )
-        select_all_button.pack(side=tk.LEFT, padx=5)
-        self._create_tooltip(select_all_button, "Select all files in the preview")
-        
-        # Add Deselect All button
-        deselect_all_button = ttk.Button(
-            self.preview_button_frame, text="Deselect All", command=self._deselect_all_files
-        )
-        deselect_all_button.pack(side=tk.LEFT, padx=5)
-        self._create_tooltip(deselect_all_button, "Deselect all files in the preview")
-        
-        # Preview table with scrollbars
-        preview_container = ttk.Frame(preview_frame)
-        preview_container.pack(fill=tk.BOTH, expand=True)
-
-        # Create the treeview
-        self.preview_tree = ttk.Treeview(
-            preview_container,
-            columns=("selected", "source", "destination"),
-            show="headings",
-            selectmode="extended"  # Allow multiple selections
-        )
-        
-        # Define the columns
-        self.preview_tree.heading("selected", text="Select ☑")
-        self.preview_tree.heading("source", text="Source Path")
-        self.preview_tree.heading("destination", text="Destination Path")
-        
-        # Configure column widths
-        preview_container.update_idletasks()  # Ensure container has been drawn
-        width = preview_container.winfo_width()
-        self.preview_tree.column("selected", width=60, stretch=False)  # Fixed width for checkbox column
-        self.preview_tree.column("source", width=(width-60)//2, stretch=True)
-        self.preview_tree.column("destination", width=(width-60)//2, stretch=True)
-
-        # Add click event to toggle selection
-        self.preview_tree.bind("<ButtonRelease-1>", self._toggle_selection)
-        # Keep double-click event as a backup
-        self.preview_tree.bind("<Double-1>", self._toggle_selection)
-
-        # Add scrollbars
-        preview_scrollbar_y = ttk.Scrollbar(
-            preview_container, orient="vertical", command=self.preview_tree.yview
-        )
-        preview_scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
-
-        preview_scrollbar_x = ttk.Scrollbar(
-            preview_container, orient="horizontal", command=self.preview_tree.xview
-        )
-        preview_scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.preview_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.preview_tree.configure(
-            yscrollcommand=preview_scrollbar_y.set,
-            xscrollcommand=preview_scrollbar_x.set
-        )
+        self.preferences_panel = PreferencesPanel(self)
+        self.preferences_panel.build(preferences_tab)
+        self.preferences_panel.bind_to_app()
 
     def _toggle_logs(self):
         """Toggle the visibility of the log window."""
@@ -620,232 +291,6 @@ class ArchimediusGUI:
             self.log_window.hide()
         else:
             self.log_window.show()
-
-    def _create_preferences_tab(self, parent):
-        """Create inline preferences controls in the Preferences tab."""
-        preferences_frame = ttk.Frame(parent)
-        preferences_frame.pack(fill=tk.BOTH, expand=True)
-
-        prefs_notebook = ttk.Notebook(preferences_frame)
-        prefs_notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
-        general_tab = ttk.Frame(prefs_notebook, padding=10)
-        file_types_tab = ttk.Frame(prefs_notebook, padding=10)
-        prefs_notebook.add(general_tab, text="General")
-        prefs_notebook.add(file_types_tab, text="File Types")
-
-        # General settings
-        self.pref_auto_preview_var = tk.BooleanVar(value=self.auto_preview_enabled)
-        self.pref_auto_save_var = tk.BooleanVar(value=self.auto_save_enabled)
-        self.pref_show_full_paths_var = tk.BooleanVar(value=self.show_full_paths)
-        self.pref_dark_mode_var = tk.BooleanVar(value=self.dark_mode)
-        self.pref_logging_level_var = tk.StringVar(value=self.logging_level)
-        self.pref_collision_policy_var = tk.StringVar(value=self.collision_policy)
-
-        ttk.Checkbutton(
-            general_tab,
-            text="Automatically generate preview when settings change",
-            variable=self.pref_auto_preview_var,
-            command=self._on_inline_general_preferences_change,
-        ).pack(anchor=tk.W, pady=4)
-        ttk.Checkbutton(
-            general_tab,
-            text="Automatically save settings when inputs change",
-            variable=self.pref_auto_save_var,
-            command=self._on_inline_general_preferences_change,
-        ).pack(anchor=tk.W, pady=4)
-        ttk.Checkbutton(
-            general_tab,
-            text="Show full file paths in preview",
-            variable=self.pref_show_full_paths_var,
-            command=self._on_inline_general_preferences_change,
-        ).pack(anchor=tk.W, pady=4)
-        ttk.Checkbutton(
-            general_tab,
-            text="Enable dark mode",
-            variable=self.pref_dark_mode_var,
-            command=self._on_inline_dark_mode_toggle,
-        ).pack(anchor=tk.W, pady=4)
-
-        logging_row = ttk.Frame(general_tab)
-        logging_row.pack(fill=tk.X, pady=(10, 0))
-        ttk.Label(logging_row, text="Logging Level:").pack(side=tk.LEFT, padx=(0, 10))
-        logging_combobox = ttk.Combobox(
-            logging_row,
-            textvariable=self.pref_logging_level_var,
-            values=list(defaults.LOGGING_LEVELS.keys()),
-            state="readonly",
-            width=10,
-        )
-        logging_combobox.pack(side=tk.LEFT)
-        logging_combobox.bind(
-            "<<ComboboxSelected>>",
-            lambda _event: self._on_inline_general_preferences_change(),
-        )
-
-        collision_row = ttk.Frame(general_tab)
-        collision_row.pack(fill=tk.X, pady=(10, 0))
-        ttk.Label(collision_row, text="Path collision policy:").pack(side=tk.LEFT, padx=(0, 10))
-        collision_combobox = ttk.Combobox(
-            collision_row,
-            textvariable=self.pref_collision_policy_var,
-            values=list(defaults.COLLISION_POLICY_LABELS.values()),
-            state="readonly",
-            width=28,
-        )
-        collision_combobox.pack(side=tk.LEFT)
-        collision_combobox.bind(
-            "<<ComboboxSelected>>",
-            lambda _event: self._on_inline_general_preferences_change(),
-        )
-
-        # File type extension settings
-        self.pref_extension_texts = {}
-        filetype_notebook = ttk.Notebook(file_types_tab)
-        filetype_notebook.pack(fill=tk.BOTH, expand=True)
-
-        for media_type in ["audio", "video", "image", "ebook"]:
-            frame = ttk.Frame(filetype_notebook, padding=10)
-            filetype_notebook.add(frame, text=media_type.title())
-            ttk.Label(
-                frame,
-                text=f"Extensions for {media_type} files (one per line):",
-                wraplength=500,
-            ).pack(anchor=tk.W, pady=(0, 5))
-
-            text_frame = ttk.Frame(frame)
-            text_frame.pack(fill=tk.BOTH, expand=True)
-            text_widget = tk.Text(text_frame, height=10)
-            scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
-            text_widget.configure(yscrollcommand=scrollbar.set)
-            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-            text_widget.insert(
-                "1.0",
-                "\n".join(ext.lstrip(".") for ext in self.settings.supported_extensions[media_type]),
-            )
-            self.pref_extension_texts[media_type] = text_widget
-
-            ttk.Button(
-                frame,
-                text="Reset to Default",
-                command=lambda m=media_type: self._reset_inline_extensions_to_default(m),
-            ).pack(anchor=tk.E, pady=5)
-
-        # Action buttons
-        buttons_frame = ttk.Frame(preferences_frame)
-        buttons_frame.pack(fill=tk.X)
-        ttk.Button(
-            buttons_frame,
-            text="Save Preferences",
-            command=self._save_inline_preferences,
-        ).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(
-            buttons_frame,
-            text="Reload From Saved Settings",
-            command=self._load_settings,
-        ).pack(side=tk.RIGHT, padx=5)
-
-    def _reset_inline_extensions_to_default(self, media_type):
-        """Reset inline extension editor for one media type."""
-        default_extensions = [ext.lstrip(".") for ext in defaults.DEFAULT_EXTENSIONS[media_type]]
-        if media_type in getattr(self, "pref_extension_texts", {}):
-            self.pref_extension_texts[media_type].delete("1.0", tk.END)
-            self.pref_extension_texts[media_type].insert("1.0", "\n".join(default_extensions))
-
-    def _save_inline_preferences(self):
-        """Save inline preferences tab settings."""
-        try:
-            self.auto_preview_enabled = self.pref_auto_preview_var.get()
-            self.auto_save_enabled = self.pref_auto_save_var.get()
-            self.show_full_paths = self.pref_show_full_paths_var.get()
-            self.logging_level = self.pref_logging_level_var.get()
-            self.dark_mode = self.pref_dark_mode_var.get()
-            self.collision_policy = self._collision_policy_from_label(
-                self.pref_collision_policy_var.get()
-            )
-            self.apply_theme(self.dark_mode)
-
-            new_extensions = {}
-            for media_type, text_widget in self.pref_extension_texts.items():
-                extensions_text = text_widget.get("1.0", "end-1c").split("\n")
-                extensions_list = [ext.strip() for ext in extensions_text if ext.strip()]
-                extensions_list = [ext if ext.startswith(".") else f".{ext}" for ext in extensions_list]
-                if not extensions_list:
-                    messagebox.showerror(
-                        "Error",
-                        f"Please provide at least one extension for {media_type}.",
-                    )
-                    return
-                new_extensions[media_type] = extensions_list
-
-            self.settings.supported_extensions = new_extensions
-            self._refresh_extension_filters()
-            self._save_settings()
-            self._auto_generate_preview()
-            self.status_var.set("Preferences saved.")
-        except Exception as e:
-            logger.error(f"Error saving inline preferences: {e}")
-            messagebox.showerror("Error", f"Failed to save preferences: {str(e)}")
-
-    def _on_inline_dark_mode_toggle(self):
-        """Apply dark mode immediately from inline preferences."""
-        self._on_inline_general_preferences_change()
-
-    def _on_inline_general_preferences_change(self):
-        """Apply general preference changes immediately and persist them."""
-        previous_show_full_paths = self.show_full_paths
-        self.auto_preview_enabled = self.pref_auto_preview_var.get()
-        self.auto_save_enabled = self.pref_auto_save_var.get()
-        self.show_full_paths = self.pref_show_full_paths_var.get()
-        self.logging_level = self.pref_logging_level_var.get()
-        self.dark_mode = self.pref_dark_mode_var.get()
-        self.collision_policy = self._collision_policy_from_label(
-            self.pref_collision_policy_var.get()
-        )
-        self.apply_theme(self.dark_mode)
-        self._save_settings()
-
-        # Refresh preview display immediately when path display mode changes.
-        if previous_show_full_paths != self.show_full_paths:
-            source_dir = self.source_entry.get().strip()
-            if source_dir and os.path.exists(source_dir):
-                self._generate_preview()
-
-    def _sync_inline_preferences_controls(self):
-        """Sync inline preference controls with current in-memory settings."""
-        if hasattr(self, "pref_auto_preview_var"):
-            self.pref_auto_preview_var.set(self.auto_preview_enabled)
-        if hasattr(self, "pref_auto_save_var"):
-            self.pref_auto_save_var.set(self.auto_save_enabled)
-        if hasattr(self, "pref_show_full_paths_var"):
-            self.pref_show_full_paths_var.set(self.show_full_paths)
-        if hasattr(self, "pref_dark_mode_var"):
-            self.pref_dark_mode_var.set(self.dark_mode)
-        if hasattr(self, "pref_logging_level_var"):
-            self.pref_logging_level_var.set(self.logging_level)
-        if hasattr(self, "pref_collision_policy_var"):
-            self.pref_collision_policy_var.set(
-                defaults.COLLISION_POLICY_LABELS.get(
-                    self.collision_policy,
-                    defaults.COLLISION_POLICY_LABELS[defaults.DEFAULT_SETTINGS["collision_policy"]],
-                )
-            )
-
-        if hasattr(self, "pref_extension_texts"):
-            for media_type, text_widget in self.pref_extension_texts.items():
-                if media_type in self.settings.supported_extensions:
-                    text_widget.delete("1.0", tk.END)
-                    text_widget.insert(
-                        "1.0",
-                        "\n".join(ext.lstrip(".") for ext in self.settings.supported_extensions[media_type]),
-                    )
-
-    def _collision_policy_from_label(self, label: str) -> str:
-        for policy, policy_label in defaults.COLLISION_POLICY_LABELS.items():
-            if policy_label == label:
-                return policy
-        return defaults.DEFAULT_SETTINGS["collision_policy"]
 
     def _create_collision_resolver(self):
         """Build a thread-safe collision resolver for prompt policy during a run."""
@@ -930,11 +375,8 @@ class ArchimediusGUI:
             
     def _clear_preview(self):
         """Clear the preview list and stored preview data."""
-        for item in self.preview_tree.get_children():
-            self.preview_tree.delete(item)
-        self._full_preview_data = []
-        self._full_preview_count = 0
-    
+        self.preview_panel.clear()
+
     def _update_progress(self, processed, total, current_file):
         """Update the progress display."""
         if total > 0:
@@ -1091,65 +533,16 @@ class ArchimediusGUI:
 
     def _update_preview_results(self, preview_data, count):
         """Update the preview treeview with results from the preview thread."""
-        # Store full preview data for client-side re-filtering
-        self._full_preview_data = list(preview_data)
-        self._full_preview_count = count
-        
-        self._display_preview_data(preview_data, count)
+        self.preview_panel.update_results(preview_data, count)
 
     def _display_preview_data(self, preview_data, count):
         """Populate the preview treeview with the given data and update status."""
-        # Clear existing items
-        for item in self.preview_tree.get_children():
-            self.preview_tree.delete(item)
-            
-        # Store the full file paths for later processing
-        self.preview_files = {}
-        
-        # Insert preview data into treeview
-        for i, (display_source, display_dest, full_path) in enumerate(preview_data):
-            item_id = self.preview_tree.insert("", "end", values=("☐", display_source, display_dest))
-            
-            self.preview_files[item_id] = {
-                "source_path": display_source,
-                "dest_path": display_dest,
-                "selected": False,
-                "full_path": full_path
-            }
-
-        # Update status
-        if count == 0:
-            self.status_var.set("No media files found in the source directory.")
-            self.file_var.set("")
-        else:
-            media_types = {}
-            for display_source, _, full_path in preview_data:
-                ext = os.path.splitext(full_path)[1].lower()
-                media_type = None
-                for type_name, extensions in self.settings.supported_extensions.items():
-                    if ext in extensions:
-                        media_type = type_name
-                        break
-                
-                if media_type:
-                    media_types[media_type] = media_types.get(media_type, 0) + 1
-            
-            type_counts = ", ".join([f"{count} {media_type}" for media_type, count in media_types.items()])
-            self.status_var.set(f"Preview generated for {len(preview_data)} files.")
-            self.file_var.set(f"Found: {type_counts}")
+        self.preview_panel.display(preview_data, count)
 
     def _filter_preview(self):
         """Re-filter stored preview data by currently selected extensions and refresh the tree."""
-        if not self._full_preview_data:
-            return
-        
-        selected_extensions = self._get_selected_extensions()
-        filtered = [
-            (src, dest, path) for src, dest, path in self._full_preview_data
-            if os.path.splitext(path)[1].lower() in selected_extensions
-        ]
-        self._display_preview_data(filtered, len(filtered))
-    
+        self.preview_panel.filter_by_selected_extensions()
+
     def _update_preview_status(self, message, error=False):
         """Update the preview status with a message."""
         self.status_var.set(message)
@@ -1169,48 +562,23 @@ class ArchimediusGUI:
 
     def _toggle_all_extensions(self, file_type):
         """Toggle all extensions for a file type."""
-        value = getattr(self, f"{file_type}_all_var").get()
-        for var in self.extension_vars[file_type].values():
-            var.set(value)
-        # Auto-save settings if enabled
-        if getattr(self, "auto_save_enabled", True):
-            self._save_settings()
-        # Immediately re-filter existing preview data
-        self._filter_preview()
-    
+        self.extension_filter_panel.toggle_all(file_type)
+
     def _update_extension_selection(self):
         """Update the 'All' checkboxes based on individual selections."""
-        for file_type in ["audio", "video", "image", "ebook"]:
-            all_selected = all(var.get() for var in self.extension_vars[file_type].values())
-            getattr(self, f"{file_type}_all_var").set(all_selected)
-        # Auto-save settings if enabled
-        if getattr(self, "auto_save_enabled", True):
-            self._save_settings()
-        # Immediately re-filter existing preview data
-        self._filter_preview()
-    
+        self.extension_filter_panel.update_selection()
+
     def _get_selected_extensions(self):
         """Get a list of all selected file extensions."""
-        selected_extensions = []
-        for file_type, extensions_list in self.extension_vars.items():
-            for ext, var in extensions_list.items():
-                if var.get():
-                    selected_extensions.append(ext)
-        return selected_extensions
+        return self.extension_filter_panel.get_selected_extensions()
 
     def _get_exclude_unknown_settings(self):
         """Return per-media-type exclude-unknown flags from the GUI."""
-        return {
-            media_type: self.exclude_unknown_vars[media_type].get()
-            for media_type in self.exclude_unknown_vars
-        }
+        return self.template_panel.get_exclude_unknown_settings()
 
     def _get_template_settings(self):
         """Return current path templates for all media types."""
-        return {
-            media_type: self.template_vars[media_type].get().strip()
-            for media_type in MEDIA_TYPES
-        }
+        return self.template_panel.get_template_settings()
 
     def _on_template_change(self, *_, media_type=None):
         """
@@ -1676,29 +1044,10 @@ class ArchimediusGUI:
             self.output_entry.delete(0, tk.END)
             self.output_entry.insert(0, settings.output_dir)
 
-        for media_type in MEDIA_TYPES:
-            template = settings.templates.get(media_type)
-            if template:
-                self.template_vars[media_type].set(template)
-        if settings.templates.get("audio"):
-            self.template_var.set(settings.templates["audio"])
-
+        self.template_panel.apply_templates(settings.templates)
         self._refresh_extension_filters()
-
-        for file_type in MEDIA_TYPES:
-            for ext, value in settings.extension_selections.get(file_type, {}).items():
-                if ext in self.extension_vars[file_type]:
-                    self.extension_vars[file_type][ext].set(value)
-            if self.extension_vars[file_type]:
-                all_selected = all(var.get() for var in self.extension_vars[file_type].values())
-                getattr(self, f"{file_type}_all_var").set(all_selected)
-
-        for media_type in MEDIA_TYPES:
-            self.exclude_unknown_vars[media_type].set(
-                settings.exclude_unknown.get(
-                    media_type, defaults.DEFAULT_EXCLUDE_UNKNOWN[media_type]
-                )
-            )
+        self.extension_filter_panel.apply_extension_selections(settings.extension_selections)
+        self.template_panel.apply_exclude_unknown(settings.exclude_unknown)
 
         self.apply_theme(settings.dark_mode)
         self._sync_inline_preferences_controls()
@@ -1725,18 +1074,9 @@ class ArchimediusGUI:
                 self.source_entry.delete(0, tk.END)
                 self.output_entry.delete(0, tk.END)
 
-                # Reset templates to defaults
-                for media_type in ["audio", "video", "image", "ebook"]:
-                    self.template_vars[media_type].set(defaults.DEFAULT_TEMPLATES[media_type])
+                self.template_panel.reset_to_defaults()
+                self.extension_filter_panel.reset_all_selected()
 
-                # For backward compatibility
-                self.template_var.set(defaults.DEFAULT_TEMPLATES["audio"])
-                
-                # Reset extension checkboxes to checked
-                for file_type in ["audio", "video", "image", "ebook"]:
-                    getattr(self, f"{file_type}_all_var").set(True)
-                    self._toggle_all_extensions(file_type)
-                
                 self.settings = default_settings()
                 sync_gui_from_settings(self, self.settings)
                 self.settings.supported_extensions = copy.deepcopy(defaults.DEFAULT_EXTENSIONS)
@@ -1783,49 +1123,16 @@ class ArchimediusGUI:
 
     def _toggle_selection(self, event):
         """Toggle selection of a file in the preview treeview when clicked."""
-        # Get the item that was clicked
-        region = self.preview_tree.identify_region(event.x, event.y)
-        if region != "cell":
-            return
-            
-        item = self.preview_tree.identify_row(event.y)
-        if not item:
-            return
-            
-        # Get the column that was clicked
-        column = self.preview_tree.identify_column(event.x)
-        column_index = int(column.replace('#', '')) - 1
-        
-        # Only toggle if the checkbox column was clicked
-        if column_index == 0:
-            # Toggle the checkbox
-            values = list(self.preview_tree.item(item, "values"))
-            if values[0] == "☐":
-                values[0] = "☑"
-                self.preview_files[item]["selected"] = True
-            else:
-                values[0] = "☐"
-                self.preview_files[item]["selected"] = False
-                
-            # Update the item
-            self.preview_tree.item(item, values=values)
-            
+        self.preview_panel.toggle_selection(event)
+
     def _select_all_files(self):
         """Select all files in the preview treeview."""
-        for item in self.preview_tree.get_children():
-            values = list(self.preview_tree.item(item, "values"))
-            values[0] = "☑"
-            self.preview_tree.item(item, values=values)
-            self.preview_files[item]["selected"] = True
-            
+        self.preview_panel.select_all_files()
+
     def _deselect_all_files(self):
         """Deselect all files in the preview treeview."""
-        for item in self.preview_tree.get_children():
-            values = list(self.preview_tree.item(item, "values"))
-            values[0] = "☐"
-            self.preview_tree.item(item, values=values)
-            self.preview_files[item]["selected"] = False
-            
+        self.preview_panel.deselect_all_files()
+
     def _process_selected_files(self, mode):
         """Process only the selected files in the preview treeview."""
         # Get the source and output directories
@@ -1968,14 +1275,10 @@ class ArchimediusGUI:
     def _update_ui_for_processing(self, is_processing):
         """Update the UI elements for processing state."""
         if is_processing:
-            # Disable all interactive elements during processing
-            # Disable main action buttons
             self.copy_button.config(state=tk.DISABLED)
             self.move_button.config(state=tk.DISABLED)
-            # Enable stop button
             self.stop_button.config(state=tk.NORMAL)
-            
-            # Disable directory selection
+
             self.source_entry.config(state=tk.DISABLED)
             self.output_entry.config(state=tk.DISABLED)
             for button in self.source_frame.winfo_children():
@@ -1984,43 +1287,19 @@ class ArchimediusGUI:
             for button in self.output_frame.winfo_children():
                 if isinstance(button, ttk.Button):
                     button.config(state=tk.DISABLED)
-            
-            # Disable extension filters
-            for frame in self.file_types_frame.winfo_children():
-                for widget in frame.winfo_children():
-                    if isinstance(widget, (ttk.Checkbutton, ttk.Frame)):
-                        if isinstance(widget, ttk.Frame):
-                            for cb in widget.winfo_children():
-                                if isinstance(cb, ttk.Checkbutton):
-                                    cb.config(state=tk.DISABLED)
-                        else:
-                            widget.config(state=tk.DISABLED)
-            
-            # Disable template entries and exclude unknown checkboxes
-            for media_type in ["audio", "video", "image", "ebook"]:
-                self.template_entries[media_type].config(state=tk.DISABLED)
-                
-            # Disable preview controls
-            for widget in self.preview_button_frame.winfo_children():
-                if isinstance(widget, ttk.Button):
-                    widget.config(state=tk.DISABLED)
-            
-            # Disable preview tree
-            self.preview_tree.config(selectmode="none")
-            
-            # Reset progress indicators
+
+            self.extension_filter_panel.set_enabled(False)
+            self.template_panel.set_enabled(False)
+            self.preview_panel.set_processing_state(True)
+
             self.progress_var.set(0)
             self.status_var.set("Processing files...")
             self.file_var.set("")
         else:
-            # Re-enable all interactive elements after processing
-            # Enable main action buttons
             self.copy_button.config(state=tk.NORMAL)
             self.move_button.config(state=tk.NORMAL)
-            # Disable stop button
             self.stop_button.config(state=tk.DISABLED)
-            
-            # Enable directory selection
+
             self.source_entry.config(state=tk.NORMAL)
             self.output_entry.config(state=tk.NORMAL)
             for button in self.source_frame.winfo_children():
@@ -2029,89 +1308,18 @@ class ArchimediusGUI:
             for button in self.output_frame.winfo_children():
                 if isinstance(button, ttk.Button):
                     button.config(state=tk.NORMAL)
-            
-            # Enable extension filters
-            for frame in self.file_types_frame.winfo_children():
-                for widget in frame.winfo_children():
-                    if isinstance(widget, (ttk.Checkbutton, ttk.Frame)):
-                        if isinstance(widget, ttk.Frame):
-                            for cb in widget.winfo_children():
-                                if isinstance(cb, ttk.Checkbutton):
-                                    cb.config(state=tk.NORMAL)
-                        else:
-                            widget.config(state=tk.NORMAL)
-            
-            # Enable template entries and exclude unknown checkboxes
-            for media_type in ["audio", "video", "image", "ebook"]:
-                self.template_entries[media_type].config(state=tk.NORMAL)
-                
-            # Enable preview controls
-            for widget in self.preview_button_frame.winfo_children():
-                if isinstance(widget, ttk.Button):
-                    widget.config(state=tk.NORMAL)
-            
-            # Enable preview tree
-            self.preview_tree.config(selectmode="extended")
-            
-            # Reset the processing_selected_files flag
+
+            self.extension_filter_panel.set_enabled(True)
+            self.template_panel.set_enabled(True)
+            self.preview_panel.set_processing_state(False)
             self.processing_selected_files = False
+
+    def _sync_inline_preferences_controls(self):
+        """Sync inline preference controls with current in-memory settings."""
+        if hasattr(self, "preferences_panel"):
+            self.preferences_panel.sync_controls()
 
     def _refresh_extension_filters(self):
         """Refresh the extension filter checkboxes based on current supported extensions."""
-        # Store current selections before clearing frames
-        current_selections = {}
-        current_all_selections = {}
-        for file_type in ["audio", "video", "image", "ebook"]:
-            current_selections[file_type] = {ext: var.get() for ext, var in self.extension_vars[file_type].items()}
-            current_all_selections[file_type] = getattr(self, f"{file_type}_all_var").get()
-
-        # Clear existing extension frames
-        for frame in self.file_types_frame.winfo_children():
-            frame.destroy()
-        
-        # Recreate extension frames for each file type
-        for file_type, frame_title in [
-            ("audio", "Audio"), ("video", "Video"), 
-            ("image", "Image"), ("ebook", "eBook")
-        ]:
-            # Create frame
-            type_frame = ttk.LabelFrame(self.file_types_frame, text=frame_title)
-            type_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-            
-            # Create "Select All" checkbox
-            # If parent was selected, keep new extensions selected
-            all_selected = current_all_selections.get(file_type, True)
-            all_var = tk.BooleanVar(value=all_selected)
-            setattr(self, f"{file_type}_all_var", all_var)
-            all_cb = ttk.Checkbutton(
-                type_frame,
-                text=f"All {frame_title}",
-                variable=all_var,
-                command=lambda ft=file_type: self._toggle_all_extensions(ft)
-            )
-            all_cb.pack(anchor=tk.W)
-            
-            # Create frame for extension checkboxes
-            extensions_frame = ttk.Frame(type_frame)
-            extensions_frame.pack(fill=tk.X, padx=10)
-            
-            # Clear existing extension vars for this type
-            self.extension_vars[file_type] = {}
-            
-            # Create checkboxes for each extension
-            for i, ext in enumerate(self.settings.supported_extensions[file_type]):
-                ext_name = ext.lstrip(".")
-                # If parent was selected or extension existed and was selected, keep it selected
-                selected = all_selected or current_selections.get(file_type, {}).get(ext, True)
-                var = tk.BooleanVar(value=selected)
-                self.extension_vars[file_type][ext] = var
-                cb = ttk.Checkbutton(
-                    extensions_frame,
-                    text=ext_name,
-                    variable=var,
-                    command=self._update_extension_selection
-                )
-                cb.grid(row=i // 2, column=i % 2, sticky=tk.W, padx=5)
-
-    # Copy all methods from the original MediaOrganizerGUI class
-    # ... existing code ... 
+        self.extension_filter_panel.refresh()
+        self.extension_filter_panel.bind_to_app() 
