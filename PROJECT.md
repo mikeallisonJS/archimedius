@@ -16,7 +16,7 @@ The application follows a modular architecture with clear separation of concerns
 
 - **Model-View-Controller (MVC)**: The application loosely follows the MVC pattern:
 
-  - **Model**: `MediaFile` and `MediaOrganizer` classes handle data and business logic
+  - **Model**: `Archimedius` and `organize_plan` handle data and business logic
   - **View**: Tkinter UI components in `MediaOrganizerGUI` and dialog classes
   - **Controller**: Event handlers and callbacks in the GUI classes
 
@@ -28,9 +28,11 @@ The application follows a modular architecture with clear separation of concerns
 
 ### Core Modules
 
-- **`media_file.py`**: Handles metadata extraction from different file types
-- **`media_organizer.py`**: Core logic for organizing files based on templates
-- **`main.py`**: Entry point and GUI implementation
+- **`metadata_extract.py`**: Metadata extraction and media type detection
+- **`destination_path.py`**: Template-based destination path resolution
+- **`organize_plan.py`**: Source scan, file planning, and organize execution
+- **`archimedius.py`**: Core organizer state (templates, directories, operation mode)
+- **`archimedius_gui.py`**: Entry point and GUI implementation
 
 ### Support Modules
 
@@ -40,43 +42,25 @@ The application follows a modular architecture with clear separation of concerns
 
 ## Key Classes
 
-### MediaFile
+### organize_plan
 
-The `MediaFile` class is responsible for:
+The `organize_plan` module is the shared pipeline for Preview and Organize run:
 
-- Determining the file type (audio, video, image, ebook)
-- Extracting metadata from files using appropriate libraries
-- Generating formatted paths based on templates and metadata
+- `iter_matching_files` / `scan_source` — recursive source scan with extension and destination rules
+- `build_file_plan` — metadata extraction plus destination path via `resolve_destination_path`
+- `execute_plans` — copy/move planned files with collision handling
 
-```python
-# Key methods:
-extract_metadata()  # Main method that calls type-specific extractors
-_extract_audio_metadata()  # Extracts metadata from audio files
-_extract_video_metadata()  # Extracts metadata from video files
-_extract_image_metadata()  # Extracts metadata from image files
-_extract_ebook_metadata()  # Extracts metadata from ebook files
-get_formatted_path()  # Generates path based on template and metadata
-```
+### Archimedius
 
-### MediaOrganizer
+The `Archimedius` class holds organizer configuration:
 
-The `MediaOrganizer` class handles:
+- Source and destination directories
+- Per-media-type templates and operation mode (copy/move)
+- Progress and stop state for long-running runs
 
-- Finding media files in the source directory
-- Organizing files (copy/move) according to templates
-- Managing the organization process (start/stop)
+### ArchimediusGUI
 
-```python
-# Key methods:
-find_media_files()  # Finds all supported media files in source directory
-organize_files()    # Organizes files based on templates
-set_template()      # Sets the organization template for a media type
-get_template()      # Gets the template for a specific media type
-```
-
-### MediaOrganizerGUI
-
-The `MediaOrganizerGUI` class provides:
+The GUI layer provides:
 
 - The main application window and UI components
 - User interaction handling

@@ -53,7 +53,7 @@ jobs:
             mkdir -p tests
             echo "def test_import():
                 import archimedius
-                import media_file
+                import organize_plan
                 import defaults
                 assert True" > tests/test_imports.py
           fi
