@@ -112,5 +112,5 @@ _Avoid_: Organized path, resolved path, target path
 
 ## Flagged ambiguities
 
-- **Path collision (implementation):** Help text describes automatic rename-on-collision; current organize code performs a direct copy/move with no collision handling. Intended behavior is user prompt (see **Path collision**). Code does not match yet.
+- **Path collision (implementation):** Resolved in organize runs via **collision policy** (settings default plus optional per-collision prompt with apply-to-all).
 - **Destination vs output:** Domain term is **destination**; code still uses `output_dir` in places.

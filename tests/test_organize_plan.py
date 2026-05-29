@@ -11,12 +11,17 @@ import defaults
 import pytest
 
 from organize_plan import (
+    FilePlan,
     build_file_plan,
     build_plans_for_paths,
+    destination_path_is_occupied,
     execute_plans,
+    find_unique_destination_path,
     is_destination_inside_source,
     is_recognized_extension,
     iter_matching_files,
+    resolve_collision_action,
+    resolve_transfer_destination,
     scan_source,
     should_skip_file_under_destination,
     transfer_plan,
@@ -455,3 +460,163 @@ def test_execute_plans_honors_should_stop(tmp_path: Path):
     assert organize_result.stopped_early is True
     assert organize_result.attempted == 1
     assert organize_result.successful == 1
+
+
+def test_find_unique_destination_path_appends_counter(tmp_path: Path):
+    destination = tmp_path / "song.mp3"
+    _touch(destination)
+
+    renamed = find_unique_destination_path(destination, set())
+
+    assert renamed == tmp_path / "song (1).mp3"
+
+
+def test_find_unique_destination_path_avoids_in_run_occupancy(tmp_path: Path):
+    destination = tmp_path / "song.mp3"
+    _touch(destination)
+    occupied = {(tmp_path / "song (1).mp3").resolve()}
+
+    renamed = find_unique_destination_path(destination, occupied)
+
+    assert renamed == tmp_path / "song (2).mp3"
+
+
+def test_resolve_collision_action_maps_policies():
+    assert resolve_collision_action(defaults.COLLISION_POLICY_RENAME) == "rename"
+    assert resolve_collision_action(defaults.COLLISION_POLICY_OVERWRITE) == "overwrite"
+    assert resolve_collision_action(defaults.COLLISION_POLICY_SKIP) == "skip"
+
+
+def test_resolve_transfer_destination_skips_when_policy_is_skip(tmp_path: Path):
+    destination = tmp_path / "song.mp3"
+    _touch(destination)
+
+    resolved, action = resolve_transfer_destination(
+        destination,
+        policy=defaults.COLLISION_POLICY_SKIP,
+        occupied_paths=set(),
+    )
+
+    assert resolved is None
+    assert action == "skip"
+
+
+def test_execute_plans_rename_policy_avoids_overwrite(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    first_source = source / "a.mp3"
+    second_source = source / "b.mp3"
+    _touch(first_source)
+    _touch(second_source)
+
+    plans = [
+        FilePlan(first_source, "song.mp3", "audio"),
+        FilePlan(second_source, "song.mp3", "audio"),
+    ]
+
+    organize_result = execute_plans(
+        plans,
+        output,
+        operation_mode="copy",
+        collision_policy=defaults.COLLISION_POLICY_RENAME,
+    )
+
+    assert organize_result.successful == 2
+    assert (output / "song.mp3").is_file()
+    assert (output / "song (1).mp3").is_file()
+
+
+def test_execute_plans_skip_policy_leaves_existing_file(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    existing = output / "song.mp3"
+    incoming = source / "song.mp3"
+    _touch(existing)
+    existing.write_bytes(b"original")
+    _touch(incoming)
+    incoming.write_bytes(b"new")
+
+    plans = build_plans_for_paths(
+        [incoming],
+        templates={"audio": "{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    organize_result = execute_plans(
+        plans,
+        output,
+        operation_mode="copy",
+        collision_policy=defaults.COLLISION_POLICY_SKIP,
+    )
+
+    assert organize_result.attempted == 1
+    assert organize_result.successful == 0
+    assert organize_result.outcomes[0].skipped is True
+    assert existing.read_bytes() == b"original"
+
+
+def test_execute_plans_overwrite_policy_replaces_existing_file(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    existing = output / "song.mp3"
+    incoming = source / "song.mp3"
+    _touch(existing)
+    existing.write_bytes(b"original")
+    _touch(incoming)
+    incoming.write_bytes(b"replacement")
+
+    plans = build_plans_for_paths(
+        [incoming],
+        templates={"audio": "{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    organize_result = execute_plans(
+        plans,
+        output,
+        operation_mode="copy",
+        collision_policy=defaults.COLLISION_POLICY_OVERWRITE,
+    )
+
+    assert organize_result.successful == 1
+    assert existing.read_bytes() == b"replacement"
+
+
+def test_execute_plans_prompt_policy_uses_resolver(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    existing = output / "song.mp3"
+    incoming = source / "song.mp3"
+    _touch(existing)
+    _touch(incoming)
+
+    plans = build_plans_for_paths(
+        [incoming],
+        templates={"audio": "{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    def resolver(_plan, _destination):
+        return "rename"
+
+    organize_result = execute_plans(
+        plans,
+        output,
+        operation_mode="copy",
+        collision_policy=defaults.COLLISION_POLICY_PROMPT,
+        collision_resolver=resolver,
+    )
+
+    assert organize_result.successful == 1
+    assert (output / "song (1).mp3").is_file()
+
+
+def test_destination_path_is_occupied_detects_existing_file(tmp_path: Path):
+    destination = tmp_path / "song.mp3"
+    _touch(destination)
+
+    assert destination_path_is_occupied(destination, set()) is True
+    assert destination_path_is_occupied(tmp_path / "missing.mp3", set()) is False

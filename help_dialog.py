@@ -513,6 +513,9 @@ class HelpDialog:
         tips = [
             ("Preview Before Organizing", 
              "Always use the 'Analyze' button to preview how your files will be organized before starting the actual organization process."),
+            ("Path Collisions", 
+             "If multiple files would use the same destination path, set your preferred collision policy under Preferences > General. "
+             "Choose 'Ask for each collision' to decide per file during the run."),
             ("Backup Your Files", 
              "When first using the application, use the 'Copy All' option instead of 'Move All' to ensure your original files remain intact until you're confident with the results."),
             ("Customize Templates for Each Media Type", 
@@ -588,7 +591,9 @@ class HelpDialog:
             ("Application Freezes", 
              "If the application appears to freeze during organization, it may be processing a large file. Check the logs (View > Show Logs) for more information."),
             ("Destination Path Already Exists", 
-             "If a file with the same name already exists at the destination, the application will append a number to the filename to avoid overwriting."),
+             "When two files would land at the same destination path, Archimedius applies your path collision policy from Preferences. "
+             "You can ask for each collision, rename automatically, overwrite the existing file, or skip the transfer. "
+             "When prompted, you can apply your choice to all remaining collisions in the run."),
             ("Permission Errors", 
              "If you encounter permission errors, make sure you have the necessary permissions to read from the source directory and write to the output directory."),
             ("Metadata Not Extracted Correctly", 

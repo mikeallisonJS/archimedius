@@ -51,6 +51,7 @@ def test_settings_round_trip_via_dict():
         logging_level="DEBUG",
         dark_mode=True,
         window_geometry="900x900",
+        collision_policy="rename",
     )
 
     restored = Settings.from_dict(original.to_dict())
@@ -68,6 +69,7 @@ def test_settings_round_trip_via_dict():
     assert restored.logging_level == original.logging_level
     assert restored.dark_mode == original.dark_mode
     assert restored.window_geometry == original.window_geometry
+    assert restored.collision_policy == original.collision_policy
 
 
 def test_load_save_round_trip_file(tmp_path):
@@ -104,6 +106,20 @@ def test_load_missing_file_returns_defaults(tmp_path):
     missing = tmp_path / "missing.json"
     loaded = load_settings(missing)
     assert loaded == default_settings()
+
+
+def test_default_settings_includes_collision_policy():
+    settings = default_settings()
+    assert settings.collision_policy == defaults.DEFAULT_SETTINGS["collision_policy"]
+
+
+def test_from_dict_unknown_collision_policy_falls_back_to_default():
+    data = {
+        "collision_policy": "invalid",
+        "custom_extensions": copy.deepcopy(defaults.DEFAULT_EXTENSIONS),
+    }
+    settings = Settings.from_dict(data)
+    assert settings.collision_policy == defaults.DEFAULT_SETTINGS["collision_policy"]
 
 
 def test_configure_logging_applies_saved_level(tmp_path, monkeypatch):

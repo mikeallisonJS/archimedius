@@ -26,8 +26,14 @@ from settings import (
 )
 from log_window import LogWindow
 from archimedius import Archimedius
-from organize_plan import build_plans_for_paths, execute_plans, scan_source
+from organize_plan import (
+    CollisionAction,
+    build_plans_for_paths,
+    execute_plans,
+    scan_source,
+)
 from about_dialog import AboutDialog
+from collision_dialog import CollisionPromptDialog
 from help_dialog import HelpDialog
 
 # Configure logging
@@ -634,6 +640,7 @@ class ArchimediusGUI:
         self.pref_show_full_paths_var = tk.BooleanVar(value=self.show_full_paths)
         self.pref_dark_mode_var = tk.BooleanVar(value=self.dark_mode)
         self.pref_logging_level_var = tk.StringVar(value=self.logging_level)
+        self.pref_collision_policy_var = tk.StringVar(value=self.collision_policy)
 
         ttk.Checkbutton(
             general_tab,
@@ -672,6 +679,22 @@ class ArchimediusGUI:
         )
         logging_combobox.pack(side=tk.LEFT)
         logging_combobox.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self._on_inline_general_preferences_change(),
+        )
+
+        collision_row = ttk.Frame(general_tab)
+        collision_row.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(collision_row, text="Path collision policy:").pack(side=tk.LEFT, padx=(0, 10))
+        collision_combobox = ttk.Combobox(
+            collision_row,
+            textvariable=self.pref_collision_policy_var,
+            values=list(defaults.COLLISION_POLICY_LABELS.values()),
+            state="readonly",
+            width=28,
+        )
+        collision_combobox.pack(side=tk.LEFT)
+        collision_combobox.bind(
             "<<ComboboxSelected>>",
             lambda _event: self._on_inline_general_preferences_change(),
         )
@@ -738,6 +761,9 @@ class ArchimediusGUI:
             self.show_full_paths = self.pref_show_full_paths_var.get()
             self.logging_level = self.pref_logging_level_var.get()
             self.dark_mode = self.pref_dark_mode_var.get()
+            self.collision_policy = self._collision_policy_from_label(
+                self.pref_collision_policy_var.get()
+            )
             self.apply_theme(self.dark_mode)
 
             new_extensions = {}
@@ -774,6 +800,9 @@ class ArchimediusGUI:
         self.show_full_paths = self.pref_show_full_paths_var.get()
         self.logging_level = self.pref_logging_level_var.get()
         self.dark_mode = self.pref_dark_mode_var.get()
+        self.collision_policy = self._collision_policy_from_label(
+            self.pref_collision_policy_var.get()
+        )
         self.apply_theme(self.dark_mode)
         self._save_settings()
 
@@ -795,6 +824,13 @@ class ArchimediusGUI:
             self.pref_dark_mode_var.set(self.dark_mode)
         if hasattr(self, "pref_logging_level_var"):
             self.pref_logging_level_var.set(self.logging_level)
+        if hasattr(self, "pref_collision_policy_var"):
+            self.pref_collision_policy_var.set(
+                defaults.COLLISION_POLICY_LABELS.get(
+                    self.collision_policy,
+                    defaults.COLLISION_POLICY_LABELS[defaults.DEFAULT_SETTINGS["collision_policy"]],
+                )
+            )
 
         if hasattr(self, "pref_extension_texts"):
             for media_type, text_widget in self.pref_extension_texts.items():
@@ -804,6 +840,65 @@ class ArchimediusGUI:
                         "1.0",
                         "\n".join(ext.lstrip(".") for ext in self.settings.supported_extensions[media_type]),
                     )
+
+    def _collision_policy_from_label(self, label: str) -> str:
+        for policy, policy_label in defaults.COLLISION_POLICY_LABELS.items():
+            if policy_label == label:
+                return policy
+        return defaults.DEFAULT_SETTINGS["collision_policy"]
+
+    def _create_collision_resolver(self):
+        """Build a thread-safe collision resolver for prompt policy during a run."""
+        run_state = {"action": None, "apply_all": False}
+        state_lock = threading.Lock()
+
+        def resolver(plan, destination_path) -> CollisionAction:
+            with state_lock:
+                if run_state["apply_all"] and run_state["action"] is not None:
+                    return run_state["action"]
+
+            result: dict[str, CollisionAction | None] = {"action": None}
+            done = threading.Event()
+
+            def show_dialog() -> None:
+                action, apply_all = CollisionPromptDialog(
+                    self.root,
+                    source_path=plan.source_path,
+                    destination_path=destination_path,
+                ).show()
+                result["action"] = action
+                if apply_all:
+                    with state_lock:
+                        run_state["action"] = action
+                        run_state["apply_all"] = True
+                done.set()
+
+            self.root.after(0, show_dialog)
+            done.wait()
+            return result["action"] or defaults.COLLISION_POLICY_SKIP
+
+        return resolver
+
+    def _execute_plans_with_collision_policy(self, plans, output_path, operation_mode, on_each):
+        """Run execute_plans using the current collision policy and prompt resolver."""
+        collision_policy = getattr(
+            self,
+            "collision_policy",
+            defaults.DEFAULT_SETTINGS["collision_policy"],
+        )
+        collision_resolver = None
+        if collision_policy == defaults.COLLISION_POLICY_PROMPT:
+            collision_resolver = self._create_collision_resolver()
+
+        return execute_plans(
+            plans,
+            output_path,
+            operation_mode=operation_mode,
+            collision_policy=collision_policy,
+            collision_resolver=collision_resolver,
+            should_stop=lambda: self.organizer.stop_requested,
+            on_each=on_each,
+        )
 
     def _browse_source(self):
         """Browse for source directory."""
@@ -1483,6 +1578,11 @@ class ArchimediusGUI:
                     logger.info(
                         f"{operation_name.capitalize()}d {plan.source_path} to {outcome.destination_path}"
                     )
+                elif outcome.skipped:
+                    logger.info(
+                        f"Skipped {plan.source_path} due to path collision at "
+                        f"{output_path / plan.destination_path}"
+                    )
                 else:
                     logger.error(f"Error processing file {plan.source_path}: {outcome.error}")
 
@@ -1495,12 +1595,11 @@ class ArchimediusGUI:
                     ),
                 )
 
-            organize_result = execute_plans(
+            organize_result = self._execute_plans_with_collision_policy(
                 scan_result.plans,
                 output_path,
-                operation_mode=self.organizer.operation_mode,
-                should_stop=lambda: self.organizer.stop_requested,
-                on_each=on_each,
+                self.organizer.operation_mode,
+                on_each,
             )
 
             if organize_result.stopped_early:
@@ -1808,6 +1907,11 @@ class ArchimediusGUI:
                     logger.info(
                         f"{mode.capitalize()}d {plan.source_path} to {outcome.destination_path}"
                     )
+                elif outcome.skipped:
+                    logger.info(
+                        f"Skipped {plan.source_path} due to path collision at "
+                        f"{output_path / plan.destination_path}"
+                    )
                 else:
                     logger.error(f"Error processing file {plan.source_path}: {outcome.error}")
 
@@ -1820,12 +1924,11 @@ class ArchimediusGUI:
                     ),
                 )
 
-            organize_result = execute_plans(
+            organize_result = self._execute_plans_with_collision_policy(
                 plans,
                 output_path,
-                operation_mode=mode,
-                should_stop=lambda: self.organizer.stop_requested,
-                on_each=on_each,
+                mode,
+                on_each,
             )
 
             if organize_result.stopped_early:
