@@ -97,6 +97,32 @@ def test_extract_metadata_video_uses_mediainfo_when_available(tmp_path: Path):
     assert metadata["duration"] == "2:05"
 
 
+def test_extract_metadata_video_parses_utc_recorded_date_year(tmp_path: Path):
+    video_path = tmp_path / "utc_date.mp4"
+    video_path.write_bytes(b"")
+
+    general_track = MagicMock(
+        track_type="General",
+        title="UTC Film",
+        movie_name=None,
+        album=None,
+        performer=None,
+        director=None,
+        recorded_date="UTC 2020-03-15 10:00:00.000",
+        genre=None,
+        duration=None,
+    )
+    media_info = MagicMock(tracks=[general_track])
+
+    with (
+        patch("metadata_extract.video.MEDIAINFO_AVAILABLE", True),
+        patch("metadata_extract.video.MediaInfo.parse", return_value=media_info),
+    ):
+        metadata = extract_metadata(video_path, media_type="video")
+
+    assert metadata["year"] == "2020"
+
+
 def test_extract_metadata_video_falls_back_when_mediainfo_unavailable(tmp_path: Path):
     video_path = tmp_path / "clip.mp4"
     video_path.write_bytes(b"x" * 32)

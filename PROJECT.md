@@ -112,9 +112,9 @@ The application uses threading to keep the UI responsive:
 ## Dependencies
 
 - **Tkinter**: GUI framework
-- **Mutagen**: Audio metadata extraction
+- **tinytag**: Audio (and video fallback) metadata extraction
 - **Pillow (PIL)**: Image processing and metadata extraction
-- **PyPDF2**: PDF metadata extraction
+- **pypdf**: PDF metadata extraction
 - **MediaInfo** (optional): Enhanced video metadata extraction
 
 ## Cross-Platform Considerations

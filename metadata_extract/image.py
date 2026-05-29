@@ -19,20 +19,19 @@ def extract_image_metadata(file_path: Path, metadata: dict) -> None:
             metadata["format"] = img.format
             metadata["mode"] = img.mode
 
-            if hasattr(img, "_getexif") and img._getexif():
-                exif = img._getexif()
-                if exif:
-                    exif_tags = {
-                        271: "camera_make",
-                        272: "camera_model",
-                        306: "date_time",
-                        36867: "date_taken",
-                        33432: "copyright",
-                    }
+            exif = img.getexif()
+            if exif:
+                exif_tags = {
+                    271: "camera_make",
+                    272: "camera_model",
+                    306: "date_time",
+                    36867: "date_taken",
+                    33432: "copyright",
+                }
 
-                    for tag, value in exif.items():
-                        if tag in exif_tags:
-                            metadata[exif_tags[tag]] = value
+                for tag, value in exif.items():
+                    if tag in exif_tags:
+                        metadata[exif_tags[tag]] = value
 
     except Exception as exc:
         logger.error("Error extracting image metadata from %s: %s", file_path, exc)

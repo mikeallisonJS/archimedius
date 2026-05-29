@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -42,7 +43,9 @@ def extract_video_metadata(file_path: Path, metadata: dict) -> None:
                     if hasattr(track, "director") and track.director:
                         metadata["director"] = track.director
                     if hasattr(track, "recorded_date") and track.recorded_date:
-                        metadata["year"] = track.recorded_date[:4]
+                        year_match = re.search(r"\d{4}", str(track.recorded_date))
+                        if year_match:
+                            metadata["year"] = year_match.group(0)
                     if hasattr(track, "genre") and track.genre:
                         metadata["genre"] = track.genre
                     if hasattr(track, "duration") and track.duration:
