@@ -68,6 +68,10 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+tests/.pytest_tmp/
+
+# Repo-local temp dir used by test.bat
+.tmp/
 
 # macOS specific
 .DS_Store

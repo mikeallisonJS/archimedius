@@ -6,7 +6,7 @@ Basic tests for Archimedius.
 def test_imports():
     """Test that all main modules can be imported."""
     try:
-        import archimedius
+        import run_state
         import organize_plan
         import defaults
         import log_window

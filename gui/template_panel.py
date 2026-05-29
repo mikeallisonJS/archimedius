@@ -55,7 +55,7 @@ class TemplatePanel:
             value=defaults.DEFAULT_EXCLUDE_UNKNOWN[media_type]
         )
         self.template_vars[media_type] = tk.StringVar(
-            value=self.app.organizer.templates[media_type]
+            value=self.app.settings.templates[media_type]
         )
         self.template_vars[media_type].trace_add(
             "write",

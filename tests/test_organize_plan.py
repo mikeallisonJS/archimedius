@@ -384,6 +384,38 @@ def test_transfer_plan_copy_mode_places_file_under_output_root(tmp_path: Path):
     assert audio_path.is_file()
 
 
+def test_transfer_plan_rejects_invalid_operation_mode(tmp_path: Path):
+    # Migrated from the former Archimedius.set_operation_mode validation.
+    audio_path = tmp_path / "source" / "song.mp3"
+    _touch(audio_path)
+    plan = build_file_plan(
+        audio_path,
+        templates={"audio": "{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    with pytest.raises(ValueError, match="operation_mode must be 'copy' or 'move'"):
+        transfer_plan(plan, tmp_path / "output", "delete")
+
+
+def test_build_file_plan_falls_back_to_audio_template_for_missing_media_type(
+    tmp_path: Path,
+):
+    # Migrated from the former Archimedius.get_template audio fallback.
+    audio_path = tmp_path / "source" / "song.mp3"
+    _touch(audio_path)
+
+    plan = build_file_plan(
+        audio_path,
+        templates={"audio": "AudioFallback/{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    assert plan.destination_path == os.path.join("AudioFallback", "song.mp3")
+
+
 def test_execute_plans_copy_mode_end_to_end(tmp_path: Path):
     source = tmp_path / "source"
     output = tmp_path / "output"
