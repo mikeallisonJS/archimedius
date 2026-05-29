@@ -11,6 +11,7 @@ def test_imports():
         import extensions
         import defaults
         import log_window
+        import settings
         assert True
     except ImportError as e:
         assert False, f"Import error: {e}"
