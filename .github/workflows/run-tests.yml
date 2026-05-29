@@ -35,9 +35,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mediainfo
 
-      - name: Install Tkinter
+      - name: Install Tkinter and Xvfb
         run: |
-          sudo apt-get install -y python3-tk
+          sudo apt-get install -y python3-tk xvfb
 
       - name: Lint with flake8
         run: |
@@ -59,8 +59,8 @@ jobs:
                 assert True" > tests/test_imports.py
           fi
 
-          # Run tests
-          pytest --cov=. --cov-report=xml
+          # Run tests headlessly on Linux CI (Tk requires a display)
+          xvfb-run -a pytest --cov=. --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3

@@ -1001,7 +1001,13 @@ class ArchimediusGUI:
         except Exception as e:
             logger.error(f"Error generating preview: {e}")
             # Update UI in the main thread
-            self.root.after(0, lambda: self._update_preview_status(f"Preview generation failed: {str(e)}", error=True))
+            self.root.after(
+                0,
+                lambda err=e: self._update_preview_status(
+                    f"Preview generation failed: {str(err)}",
+                    error=True,
+                ),
+            )
         finally:
             # Reset progress bar
             self.root.after(0, lambda: self.progress_var.set(0))

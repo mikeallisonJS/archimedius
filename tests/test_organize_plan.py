@@ -21,7 +21,8 @@ from organize_plan import (
     should_skip_file_under_destination,
     transfer_plan,
 )
-from media_file import MediaFile
+from destination_path import resolve_destination_path
+from metadata_extract import extract_metadata
 
 SUPPORTED = extensions.DEFAULT_EXTENSIONS
 TEMPLATES = {
@@ -186,17 +187,15 @@ def test_scan_source_returns_total_count_beyond_preview_limit(tmp_path: Path):
     assert len(result.plans) == 2
 
 
-def test_scan_source_end_to_end_with_custom_media_factory(tmp_path: Path):
+def test_scan_source_end_to_end_with_custom_plan_hooks(tmp_path: Path):
     source = tmp_path / "source"
     _touch(source / "song.mp3")
 
-    class StubMediaFile:
-        def __init__(self, file_path, supported_extensions):
-            self.file_path = Path(file_path)
-            self.file_type = "audio"
+    def stub_metadata_extractor(file_path, supported_extensions):
+        return "audio", {"filename_with_extension": "song.mp3", "extension": "mp3"}
 
-        def get_formatted_path(self, template, exclude_unknown=False):
-            return "Planned/song.mp3"
+    def stub_path_resolver(metadata, media_type, template, exclude_unknown=False):
+        return "Planned/song.mp3"
 
     result = scan_source(
         source,
@@ -205,7 +204,8 @@ def test_scan_source_end_to_end_with_custom_media_factory(tmp_path: Path):
         SUPPORTED,
         selected_extensions={".mp3"},
         exclude_unknown=EXCLUDE_UNKNOWN_OFF,
-        media_file_factory=StubMediaFile,
+        metadata_extractor=stub_metadata_extractor,
+        path_resolver=stub_path_resolver,
     )
 
     assert len(result.plans) == 1
@@ -213,20 +213,24 @@ def test_scan_source_end_to_end_with_custom_media_factory(tmp_path: Path):
     assert result.plans[0].media_type == "audio"
 
 
-def test_scan_source_uses_shared_media_file_resolver(tmp_path: Path):
+def test_scan_source_uses_shared_destination_path_resolver(tmp_path: Path):
     audio_path = tmp_path / "song.mp3"
     _touch(audio_path)
+
+    metadata = extract_metadata(audio_path, media_type="audio", supported_extensions=SUPPORTED)
+    expected = resolve_destination_path(
+        metadata,
+        "audio",
+        "{artist}/{title}",
+        exclude_unknown=True,
+    )
 
     plan = build_file_plan(
         audio_path,
         templates={"audio": "{artist}/{title}"},
         supported_extensions=SUPPORTED,
         exclude_unknown={"audio": True},
-        media_file_factory=MediaFile,
     )
-
-    media = MediaFile(audio_path, SUPPORTED)
-    expected = media.get_formatted_path("{artist}/{title}", exclude_unknown=True)
 
     assert plan.destination_path == expected
 
