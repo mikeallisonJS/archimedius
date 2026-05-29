@@ -11,12 +11,19 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
-import json
 from ttkbootstrap import Style
 
 # Import application modules
-import extensions
 import defaults
+from settings import (
+    MEDIA_TYPES,
+    collect_settings_from_gui,
+    default_settings,
+    load_settings,
+    save_settings,
+    settings_path,
+    sync_gui_from_settings,
+)
 from log_window import LogWindow
 from preferences_dialog import PreferencesDialog
 from media_file import MediaFile
@@ -28,8 +35,6 @@ from help_dialog import HelpDialog
 # Configure logging
 logger = logging.getLogger("Archimedius")
 
-# Initialize SUPPORTED_EXTENSIONS from the defaults module
-SUPPORTED_EXTENSIONS = defaults.get_default_extensions()
 
 class ArchimediusGUI:
     """GUI for the Archimedius application."""
@@ -44,12 +49,9 @@ class ArchimediusGUI:
         # Initialize the media organizer
         self.organizer = Archimedius()
         
-        # Initialize settings
-        self.show_full_paths = defaults.DEFAULT_SETTINGS["show_full_paths"]
-        self.auto_save_enabled = defaults.DEFAULT_SETTINGS["auto_save_enabled"]
-        self.auto_preview_enabled = defaults.DEFAULT_SETTINGS["auto_preview_enabled"]
-        self.logging_level = defaults.DEFAULT_SETTINGS["logging_level"]
-        self.dark_mode = defaults.DEFAULT_SETTINGS["dark_mode"]
+        # Settings model (extensions and persisted prefs)
+        self.settings = default_settings()
+        sync_gui_from_settings(self, self.settings)
         self.style = Style()
         
         # Create variables for extension filters
@@ -60,7 +62,7 @@ class ArchimediusGUI:
         self._full_preview_count = 0
         
         # Config file path
-        self.config_file = Path.home() / defaults.DEFAULT_PATHS["settings_file"]
+        self.config_file = settings_path()
         
         # Create the main frame
         self.main_frame = ttk.Frame(self.root, padding=10)
@@ -273,7 +275,7 @@ class ArchimediusGUI:
         audio_extensions_frame = ttk.Frame(audio_frame)
         audio_extensions_frame.pack(fill=tk.X, padx=10)
         
-        for i, ext in enumerate(SUPPORTED_EXTENSIONS["audio"]):
+        for i, ext in enumerate(self.settings.supported_extensions["audio"]):
             ext_name = ext.lstrip(".")
             var = tk.BooleanVar(value=True)
             self.extension_vars["audio"][ext] = var
@@ -303,7 +305,7 @@ class ArchimediusGUI:
         video_extensions_frame = ttk.Frame(video_frame)
         video_extensions_frame.pack(fill=tk.X, padx=10)
         
-        for i, ext in enumerate(SUPPORTED_EXTENSIONS["video"]):
+        for i, ext in enumerate(self.settings.supported_extensions["video"]):
             ext_name = ext.lstrip(".")
             var = tk.BooleanVar(value=True)
             self.extension_vars["video"][ext] = var
@@ -333,7 +335,7 @@ class ArchimediusGUI:
         image_extensions_frame = ttk.Frame(image_frame)
         image_extensions_frame.pack(fill=tk.X, padx=10)
         
-        for i, ext in enumerate(SUPPORTED_EXTENSIONS["image"]):
+        for i, ext in enumerate(self.settings.supported_extensions["image"]):
             ext_name = ext.lstrip(".")
             var = tk.BooleanVar(value=True)
             self.extension_vars["image"][ext] = var
@@ -363,7 +365,7 @@ class ArchimediusGUI:
         ebook_extensions_frame = ttk.Frame(ebook_frame)
         ebook_extensions_frame.pack(fill=tk.X, padx=10)
 
-        for i, ext in enumerate(SUPPORTED_EXTENSIONS["ebook"]):
+        for i, ext in enumerate(self.settings.supported_extensions["ebook"]):
             ext_name = ext.lstrip(".")
             var = tk.BooleanVar(value=True)
             self.extension_vars["ebook"][ext] = var
@@ -621,9 +623,7 @@ class ArchimediusGUI:
         def on_save(result):
             if result:
                 if 'extensions' in result:
-                    # Update the global SUPPORTED_EXTENSIONS
-                    global SUPPORTED_EXTENSIONS
-                    SUPPORTED_EXTENSIONS = result['extensions']
+                    self.settings.supported_extensions = result['extensions']
                     # Save settings to file
                     self._save_settings()
                     # Refresh extension filters if needed
@@ -633,7 +633,7 @@ class ArchimediusGUI:
                         self._auto_generate_preview()
         
         # Create the preferences dialog with the callback
-        PreferencesDialog(self.root, self, SUPPORTED_EXTENSIONS, callback=on_save)
+        PreferencesDialog(self.root, self, self.settings.supported_extensions, callback=on_save)
 
     def _create_preferences_tab(self, parent):
         """Create inline preferences controls in the Preferences tab."""
@@ -719,7 +719,7 @@ class ArchimediusGUI:
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             text_widget.insert(
                 "1.0",
-                "\n".join(ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS[media_type]),
+                "\n".join(ext.lstrip(".") for ext in self.settings.supported_extensions[media_type]),
             )
             self.pref_extension_texts[media_type] = text_widget
 
@@ -773,8 +773,7 @@ class ArchimediusGUI:
                     return
                 new_extensions[media_type] = extensions_list
 
-            global SUPPORTED_EXTENSIONS
-            SUPPORTED_EXTENSIONS = new_extensions
+            self.settings.supported_extensions = new_extensions
             self._refresh_extension_filters()
             self._save_settings()
             self._auto_generate_preview()
@@ -819,11 +818,11 @@ class ArchimediusGUI:
 
         if hasattr(self, "pref_extension_texts"):
             for media_type, text_widget in self.pref_extension_texts.items():
-                if media_type in SUPPORTED_EXTENSIONS:
+                if media_type in self.settings.supported_extensions:
                     text_widget.delete("1.0", tk.END)
                     text_widget.insert(
                         "1.0",
-                        "\n".join(ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS[media_type]),
+                        "\n".join(ext.lstrip(".") for ext in self.settings.supported_extensions[media_type]),
                     )
 
     def _browse_source(self):
@@ -957,7 +956,7 @@ class ArchimediusGUI:
                 source_path,
                 output_dir or None,
                 templates,
-                SUPPORTED_EXTENSIONS,
+                self.settings.supported_extensions,
                 selected_extensions,
                 exclude_unknown,
                 max_files=100,
@@ -1049,7 +1048,7 @@ class ArchimediusGUI:
             for display_source, _, full_path in preview_data:
                 ext = os.path.splitext(full_path)[1].lower()
                 media_type = None
-                for type_name, extensions in SUPPORTED_EXTENSIONS.items():
+                for type_name, extensions in self.settings.supported_extensions.items():
                     if ext in extensions:
                         media_type = type_name
                         break
@@ -1530,7 +1529,7 @@ class ArchimediusGUI:
                     try:
                         # Create a custom supported_extensions dictionary with only selected extensions
                         custom_extensions = {}
-                        for media_type, extensions_list in SUPPORTED_EXTENSIONS.items():
+                        for media_type, extensions_list in self.settings.supported_extensions.items():
                             custom_extensions[media_type] = [ext for ext in extensions_list if ext in selected_extensions]
                         
                         # Extract metadata
@@ -1607,148 +1606,64 @@ class ArchimediusGUI:
     def _save_settings(self):
         """Save user settings to a configuration file."""
         try:
-            # Collect settings
-            settings = {
-                "source_dir": self.source_entry.get().strip(),
-                "output_dir": self.output_entry.get().strip(),
-                "templates": {
-                    "audio": self.template_vars["audio"].get().strip(),
-                    "video": self.template_vars["video"].get().strip(),
-                    "image": self.template_vars["image"].get().strip(),
-                    "ebook": self.template_vars["ebook"].get().strip(),
-                },
-                # For backward compatibility
-                "template": self.template_vars["audio"].get().strip(),
-                "extensions": {
-                    "audio": {ext: var.get() for ext, var in self.extension_vars["audio"].items()},
-                    "video": {ext: var.get() for ext, var in self.extension_vars["video"].items()},
-                    "image": {ext: var.get() for ext, var in self.extension_vars["image"].items()},
-                    "ebook": {ext: var.get() for ext, var in self.extension_vars["ebook"].items()},
-                },
-                # Save exclude unknown settings
-                "exclude_unknown": {
-                    "audio": self.exclude_unknown_vars["audio"].get(),
-                    "video": self.exclude_unknown_vars["video"].get(),
-                    "image": self.exclude_unknown_vars["image"].get(),
-                    "ebook": self.exclude_unknown_vars["ebook"].get(),
-                },
-                # Save custom extensions
-                "custom_extensions": SUPPORTED_EXTENSIONS,
-                "show_full_paths": getattr(self, "show_full_paths", False),
-                "auto_save_enabled": getattr(self, "auto_save_enabled", True),
-                "auto_preview_enabled": getattr(self, "auto_preview_enabled", True),
-                "logging_level": getattr(self, "logging_level", defaults.DEFAULT_SETTINGS["logging_level"]),
-                "dark_mode": getattr(self, "dark_mode", defaults.DEFAULT_SETTINGS["dark_mode"]),
-                "window_geometry": self.root.geometry(),
-                "operation_mode": getattr(self, "operation_mode", "copy"),
-            }
-            
-            # Save to file
-            with open(self.config_file, "w") as f:
-                json.dump(settings, f)
-                
-            logger.info(f"Settings saved to {self.config_file}")
+            self.settings = collect_settings_from_gui(self)
+            save_settings(self.settings, self.config_file)
+            sync_gui_from_settings(self, self.settings)
         except Exception as e:
             logger.error(f"Error saving settings: {e}")
-    
+
+    def _apply_settings_to_widgets(self, settings):
+        """Apply a Settings instance to GUI widgets."""
+        if settings.window_geometry:
+            try:
+                self.root.geometry(settings.window_geometry)
+            except Exception as e:
+                logger.warning(f"Could not restore saved window size: {e}")
+
+        if settings.source_dir:
+            self.source_entry.delete(0, tk.END)
+            self.source_entry.insert(0, settings.source_dir)
+
+        if settings.output_dir:
+            self.output_entry.delete(0, tk.END)
+            self.output_entry.insert(0, settings.output_dir)
+
+        for media_type in MEDIA_TYPES:
+            template = settings.templates.get(media_type)
+            if template:
+                self.template_vars[media_type].set(template)
+        if settings.templates.get("audio"):
+            self.template_var.set(settings.templates["audio"])
+
+        self._refresh_extension_filters()
+
+        for file_type in MEDIA_TYPES:
+            for ext, value in settings.extension_selections.get(file_type, {}).items():
+                if ext in self.extension_vars[file_type]:
+                    self.extension_vars[file_type][ext].set(value)
+            if self.extension_vars[file_type]:
+                all_selected = all(var.get() for var in self.extension_vars[file_type].values())
+                getattr(self, f"{file_type}_all_var").set(all_selected)
+
+        for media_type in MEDIA_TYPES:
+            self.exclude_unknown_vars[media_type].set(
+                settings.exclude_unknown.get(
+                    media_type, defaults.DEFAULT_EXCLUDE_UNKNOWN[media_type]
+                )
+            )
+
+        self.apply_theme(settings.dark_mode)
+        self._sync_inline_preferences_controls()
+
     def _load_settings(self):
         """Load user settings from the configuration file."""
         try:
+            self.settings = load_settings(self.config_file)
+            sync_gui_from_settings(self, self.settings)
             if self.config_file.exists():
-                with open(self.config_file, "r") as f:
-                    settings = json.load(f)
-                
-                # Apply settings
-                if "window_geometry" in settings and settings["window_geometry"]:
-                    try:
-                        self.root.geometry(settings["window_geometry"])
-                    except Exception as e:
-                        logger.warning(f"Could not restore saved window size: {e}")
-
-                if "source_dir" in settings and settings["source_dir"]:
-                    self.source_entry.delete(0, tk.END)
-                    self.source_entry.insert(0, settings["source_dir"])
-                
-                if "output_dir" in settings and settings["output_dir"]:
-                    self.output_entry.delete(0, tk.END)
-                    self.output_entry.insert(0, settings["output_dir"])
-
-                # Load templates
-                if "templates" in settings:
-                    for media_type in ["audio", "video", "image", "ebook"]:
-                        if (
-                            media_type in settings["templates"]
-                            and settings["templates"][media_type]
-                        ):
-                            self.template_vars[media_type].set(settings["templates"][media_type])
-                # For backward compatibility
-                elif "template" in settings and settings["template"]:
-                    self.template_vars["audio"].set(settings["template"])
-                    # Also update the default template variable for backward compatibility
-                    self.template_var.set(settings["template"])
-
-                # Load custom extensions if available
-                if "custom_extensions" in settings:
-                    global SUPPORTED_EXTENSIONS
-                    # Start with default extensions
-                    custom_extensions = extensions.DEFAULT_EXTENSIONS.copy()
-                    # Update with custom extensions
-                    for media_type, exts in settings["custom_extensions"].items():
-                        if media_type in custom_extensions and exts:
-                            custom_extensions[media_type] = exts
-                    # Update global extensions
-                    SUPPORTED_EXTENSIONS = custom_extensions
-                    # Refresh the extension filters to show the updated extensions
-                    self._refresh_extension_filters()
-                
-                # Apply extension selections after refreshing filters
-                if "extensions" in settings:
-                    for file_type in ["audio", "video", "image", "ebook"]:
-                        if file_type in settings["extensions"]:
-                            # First update individual extensions
-                            for ext, value in settings["extensions"][file_type].items():
-                                if ext in self.extension_vars[file_type]:
-                                    self.extension_vars[file_type][ext].set(value)
-                            
-                            # Then update the "All" checkbox based on individual selections
-                            all_selected = all(var.get() for var in self.extension_vars[file_type].values())
-                            getattr(self, f"{file_type}_all_var").set(all_selected)
-                
-                # Load full paths setting
-                self.show_full_paths = settings.get("show_full_paths", False)
-
-                # Load auto-save setting (defaults to True)
-                self.auto_save_enabled = settings.get("auto_save_enabled", True)
-
-                # Load auto-preview setting (defaults to True)
-                self.auto_preview_enabled = settings.get("auto_preview_enabled", True)
-
-                # Load exclude unknown settings
-                if "exclude_unknown" in settings:
-                    for media_type in ["audio", "video", "image", "ebook"]:
-                        if media_type in settings["exclude_unknown"]:
-                            self.exclude_unknown_vars[media_type].set(settings["exclude_unknown"][media_type])
-                        else:
-                            # Use default for this media type if not in settings
-                            self.exclude_unknown_vars[media_type].set(defaults.DEFAULT_EXCLUDE_UNKNOWN[media_type])
-                else:
-                    # Use defaults for all media types if exclude_unknown not in settings
-                    for media_type in ["audio", "video", "image", "ebook"]:
-                        self.exclude_unknown_vars[media_type].set(defaults.DEFAULT_EXCLUDE_UNKNOWN[media_type])
-
-                # Load logging level setting
-                self.logging_level = settings.get("logging_level", defaults.DEFAULT_SETTINGS["logging_level"])
-                self.dark_mode = settings.get("dark_mode", defaults.DEFAULT_SETTINGS["dark_mode"])
-                self.apply_theme(self.dark_mode)
-                self._sync_inline_preferences_controls()
-                
+                self._apply_settings_to_widgets(self.settings)
                 logger.info(f"Settings loaded from {self.config_file}")
-                
-                # Generate initial preview if auto-preview is enabled
                 self._auto_generate_preview()
-
-                # Load operation mode
-                self.operation_mode = settings.get("operation_mode", "copy")
         except Exception as e:
             logger.error(f"Error loading settings: {e}")
 
@@ -1774,12 +1689,10 @@ class ArchimediusGUI:
                     getattr(self, f"{file_type}_all_var").set(True)
                     self._toggle_all_extensions(file_type)
                 
-                # Reset settings to defaults
-                self.show_full_paths = defaults.DEFAULT_SETTINGS["show_full_paths"]
-                self.auto_save_enabled = defaults.DEFAULT_SETTINGS["auto_save_enabled"]
-                self.auto_preview_enabled = defaults.DEFAULT_SETTINGS["auto_preview_enabled"]
-                self.logging_level = defaults.DEFAULT_SETTINGS["logging_level"]
-                self.dark_mode = defaults.DEFAULT_SETTINGS["dark_mode"]
+                self.settings = default_settings()
+                sync_gui_from_settings(self, self.settings)
+                self.settings.supported_extensions = defaults.get_default_extensions()
+                self._refresh_extension_filters()
                 self.apply_theme(self.dark_mode)
                 self._sync_inline_preferences_controls()
                 
@@ -2099,7 +2012,7 @@ class ArchimediusGUI:
             self.processing_selected_files = False
 
     def _refresh_extension_filters(self):
-        """Refresh the extension filter checkboxes based on current SUPPORTED_EXTENSIONS."""
+        """Refresh the extension filter checkboxes based on current supported extensions."""
         # Store current selections before clearing frames
         current_selections = {}
         current_all_selections = {}
@@ -2141,7 +2054,7 @@ class ArchimediusGUI:
             self.extension_vars[file_type] = {}
             
             # Create checkboxes for each extension
-            for i, ext in enumerate(SUPPORTED_EXTENSIONS[file_type]):
+            for i, ext in enumerate(self.settings.supported_extensions[file_type]):
                 ext_name = ext.lstrip(".")
                 # If parent was selected or extension existed and was selected, keep it selected
                 selected = all_selected or current_selections.get(file_type, {}).get(ext, True)
