@@ -82,10 +82,8 @@ def should_skip_file_under_destination(
         return False
 
     try:
-        rel_path = file_path.relative_to(source)
-        mirrored_dest = destination / rel_path
-        return file_path.is_relative_to(destination) or file_path == mirrored_dest
-    except (ValueError, RuntimeError):
+        return file_path.is_relative_to(destination)
+    except ValueError:
         return False
 
 
@@ -106,6 +104,7 @@ def iter_matching_files(
     - file is under destination while destination is inside source
     """
     selected = normalize_selected_extensions(selected_extensions)
+    recognized = all_supported_extensions(supported_extensions)
     dest_in_source = is_destination_inside_source(source, destination)
     matches: list[Path] = []
 
@@ -117,7 +116,7 @@ def iter_matching_files(
         if suffix not in selected:
             continue
 
-        if not is_recognized_extension(suffix, supported_extensions):
+        if suffix not in recognized:
             continue
 
         if destination is not None and should_skip_file_under_destination(
