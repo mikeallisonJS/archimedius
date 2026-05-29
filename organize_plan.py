@@ -14,11 +14,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
-from media_file import MediaFile
+from destination_path import resolve_destination_path
+from metadata_extract import detect_media_type, extract_metadata
 
 logger = logging.getLogger("Archimedius")
 
-MediaFileFactory = Callable[[Path, Mapping[str, Sequence[str]]], MediaFile]
+MetadataExtractor = Callable[
+    [Path, Mapping[str, Sequence[str]]],
+    tuple[str, dict],
+]
+DestinationPathResolver = Callable[[dict, str, str, bool], str]
 
 
 @dataclass(frozen=True)
@@ -177,24 +182,43 @@ def iter_matching_files(
     return matches
 
 
+def _default_metadata_extractor(
+    file_path: Path,
+    supported_extensions: Mapping[str, Sequence[str]],
+) -> tuple[str, dict]:
+    media_type = detect_media_type(file_path, supported_extensions)
+    metadata = extract_metadata(
+        file_path,
+        media_type=media_type,
+        supported_extensions=supported_extensions,
+    )
+    return media_type, metadata
+
+
 def build_file_plan(
     file_path: Path,
     *,
     templates: Mapping[str, str],
     supported_extensions: Mapping[str, Sequence[str]],
     exclude_unknown: Mapping[str, bool],
-    media_file_factory: MediaFileFactory = MediaFile,
+    metadata_extractor: MetadataExtractor = _default_metadata_extractor,
+    path_resolver: DestinationPathResolver = resolve_destination_path,
 ) -> FilePlan:
     """Build a destination path plan for a single source file."""
-    media_file = media_file_factory(file_path, supported_extensions)
-    template = templates.get(media_file.file_type, templates.get("audio", "{filename}"))
-    exclude = exclude_unknown.get(media_file.file_type, False)
-    destination_path = media_file.get_formatted_path(template, exclude_unknown=exclude)
+    media_type, metadata = metadata_extractor(file_path, supported_extensions)
+    template = templates.get(media_type, templates.get("audio", "{filename}"))
+    exclude = exclude_unknown.get(media_type, False)
+    destination_path = path_resolver(
+        metadata,
+        media_type,
+        template,
+        exclude_unknown=exclude,
+    )
 
     return FilePlan(
         source_path=file_path,
         destination_path=destination_path,
-        media_type=media_file.file_type,
+        media_type=media_type,
     )
 
 
@@ -207,7 +231,8 @@ def scan_source(
     exclude_unknown: Mapping[str, bool],
     *,
     max_files: int | None = None,
-    media_file_factory: MediaFileFactory = MediaFile,
+    metadata_extractor: MetadataExtractor = _default_metadata_extractor,
+    path_resolver: DestinationPathResolver = resolve_destination_path,
 ) -> ScanResult:
     """
     Scan source and produce file plans with computed destination paths.
@@ -220,7 +245,8 @@ def scan_source(
         selected_extensions: Subset of extensions to include in this run.
         exclude_unknown: Per-media-type exclude-unknown flags.
         max_files: Optional cap on returned plans (total_count is still complete).
-        media_file_factory: Injectable factory for tests.
+        metadata_extractor: Injectable metadata extraction hook for tests.
+        path_resolver: Injectable destination path resolver for tests.
 
     Returns:
         ScanResult with plans (possibly limited) and total matching file count.
@@ -249,7 +275,8 @@ def scan_source(
             templates=templates,
             supported_extensions=supported_extensions,
             exclude_unknown=exclude_unknown,
-            media_file_factory=media_file_factory,
+            metadata_extractor=metadata_extractor,
+            path_resolver=path_resolver,
         )
         for file_path in matching_files
     ]
@@ -292,7 +319,8 @@ def build_plans_for_paths(
     templates: Mapping[str, str],
     supported_extensions: Mapping[str, Sequence[str]],
     exclude_unknown: Mapping[str, bool],
-    media_file_factory: MediaFileFactory = MediaFile,
+    metadata_extractor: MetadataExtractor = _default_metadata_extractor,
+    path_resolver: DestinationPathResolver = resolve_destination_path,
 ) -> list[FilePlan]:
     """Build destination path plans for explicit source file paths."""
     return [
@@ -301,7 +329,8 @@ def build_plans_for_paths(
             templates=templates,
             supported_extensions=supported_extensions,
             exclude_unknown=exclude_unknown,
-            media_file_factory=media_file_factory,
+            metadata_extractor=metadata_extractor,
+            path_resolver=path_resolver,
         )
         for source_path in source_paths
     ]
