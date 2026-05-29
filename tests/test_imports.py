@@ -32,5 +32,5 @@ def test_defaults():
     assert "image" in defaults.DEFAULT_EXTENSIONS
     assert "ebook" in defaults.DEFAULT_EXTENSIONS
 
-    for category, extensions_list in defaults.DEFAULT_EXTENSIONS.items():
+    for _category, extensions_list in defaults.DEFAULT_EXTENSIONS.items():
         assert len(extensions_list) > 0
