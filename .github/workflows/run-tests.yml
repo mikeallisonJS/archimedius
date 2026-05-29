@@ -52,7 +52,7 @@ jobs:
           if [ ! -d "tests" ]; then
             mkdir -p tests
             echo "def test_import():
-                import archimedius
+                import run_state
                 import organize_plan
                 import defaults
                 assert True" > tests/test_imports.py

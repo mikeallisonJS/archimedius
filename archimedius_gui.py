@@ -25,7 +25,7 @@ from settings import (
     sync_gui_from_settings,
 )
 from log_window import LogWindow
-from archimedius import Archimedius
+from run_state import RunState
 from organize_plan import (
     CollisionAction,
     build_plans_for_paths,
@@ -54,9 +54,9 @@ class ArchimediusGUI:
         self.root.geometry(defaults.DEFAULT_WINDOW_SIZES["main_window"])  # Increase default height
         self.root.minsize(800, 800)    # Ensure minimum size
         
-        # Initialize the media organizer
-        self.organizer = Archimedius()
-        
+        # Run-only state for the current organize/preview run
+        self.run_state = RunState()
+
         # Settings model (extensions and persisted prefs)
         self.settings = default_settings()
         sync_gui_from_settings(self, self.settings)
@@ -341,7 +341,7 @@ class ArchimediusGUI:
             operation_mode=operation_mode,
             collision_policy=collision_policy,
             collision_resolver=collision_resolver,
-            should_stop=lambda: self.organizer.stop_requested,
+            should_stop=lambda: self.run_state.stop_requested,
             on_each=on_each,
         )
 
@@ -445,15 +445,8 @@ class ArchimediusGUI:
     def _generate_preview_thread(self, source_dir, output_dir, templates):
         """Generate preview in a separate thread to keep UI responsive."""
         try:
-            # Configure organizer for preview
-            self.organizer.set_source_dir(source_dir)
-            if output_dir:
-                self.organizer.set_output_dir(output_dir)
+            output_root = Path(output_dir) if output_dir else None
 
-            # Set templates for each media type
-            for media_type, template in templates.items():
-                self.organizer.set_template(template, media_type)
-            
             # Get selected extensions
             selected_extensions = self._get_selected_extensions()
             if not selected_extensions:
@@ -496,8 +489,8 @@ class ArchimediusGUI:
 
                     if getattr(self, "show_full_paths", False):
                         display_source = str(file_path)
-                        if self.organizer.output_dir:
-                            display_dest = str(self.organizer.output_dir / rel_path)
+                        if output_root:
+                            display_dest = str(output_root / rel_path)
                         else:
                             display_dest = rel_path
                     else:
@@ -506,8 +499,8 @@ class ArchimediusGUI:
                             display_dest = rel_path
                         except ValueError:
                             display_source = str(file_path)
-                            if self.organizer.output_dir:
-                                display_dest = str(self.organizer.output_dir / rel_path)
+                            if output_root:
+                                display_dest = str(output_root / rel_path)
                             else:
                                 display_dest = rel_path
 
@@ -877,14 +870,8 @@ class ArchimediusGUI:
             )
             return
         
-        # Configure organizer
-        self.organizer.set_source_dir(source_dir)
-        self.organizer.set_output_dir(output_dir)
-        self.organizer.set_operation_mode(mode)
-
-        # Set templates for each media type
-        for media_type, template in templates.items():
-            self.organizer.set_template(template, media_type)
+        # Operation mode for this run (also persisted via settings below)
+        self.operation_mode = mode
 
         # Save settings
         self._save_settings()
@@ -898,13 +885,11 @@ class ArchimediusGUI:
         logger.info(f"Selected extensions: {', '.join(selected_extensions)}")
 
         # Start organization in a separate thread
-        self._run_organization_with_filters(selected_extensions)
+        self._run_organization_with_filters(selected_extensions, source_dir, output_dir, mode)
 
-    def _run_organization_with_filters(self, selected_extensions):
+    def _run_organization_with_filters(self, selected_extensions, source_dir, output_dir, mode):
         """Run the organization process with the selected file extensions."""
-        self.organizer.stop_requested = False
-        self.organizer.is_running = True
-        self.organizer.files_processed = 0
+        self.run_state.begin()
 
         # Update UI
         self.copy_button.config(state=tk.DISABLED)
@@ -919,19 +904,21 @@ class ArchimediusGUI:
         
         # Start organization in a separate thread
         threading.Thread(
-            target=self._run_organization_process, args=(selected_extensions,), daemon=True
+            target=self._run_organization_process,
+            args=(selected_extensions, source_dir, output_dir, mode),
+            daemon=True,
         ).start()
-        
-    def _run_organization_process(self, selected_extensions):
+
+    def _run_organization_process(self, selected_extensions, source_dir, output_dir, mode):
         """Run the actual organization process in a separate thread."""
         try:
-            output_path = Path(self.organizer.output_dir)
+            output_path = Path(output_dir)
             templates = self._get_template_settings()
             exclude_unknown = self._get_exclude_unknown_settings()
 
             scan_result = scan_source(
-                self.organizer.source_dir,
-                self.organizer.output_dir,
+                source_dir,
+                output_dir,
                 templates,
                 self.settings.supported_extensions,
                 selected_extensions,
@@ -942,9 +929,8 @@ class ArchimediusGUI:
 
             def on_each(plan, outcome):
                 if outcome.success:
-                    operation_name = self.organizer.operation_mode
                     logger.info(
-                        f"{operation_name.capitalize()}d {plan.source_path} to {outcome.destination_path}"
+                        f"{mode.capitalize()}d {plan.source_path} to {outcome.destination_path}"
                     )
                 elif outcome.skipped:
                     logger.info(
@@ -966,21 +952,21 @@ class ArchimediusGUI:
             organize_result = self._execute_plans_with_collision_policy(
                 scan_result.plans,
                 output_path,
-                self.organizer.operation_mode,
+                mode,
                 on_each,
             )
 
             if organize_result.stopped_early:
                 logger.info("Organization stopped by user")
 
-            self.organizer.files_processed = organize_result.successful
+            self.run_state.files_processed = organize_result.successful
             self.root.after(
                 0,
                 lambda p=organize_result.attempted, t=total_files: self._update_progress(
                     p, t, "Complete"
                 ),
             )
-            operation_name = "copy" if self.organizer.operation_mode == "copy" else "move"
+            operation_name = "copy" if mode == "copy" else "move"
             logger.info(
                 f"{operation_name.capitalize()} operation complete. "
                 f"Processed {organize_result.successful} files successfully out of "
@@ -996,27 +982,28 @@ class ArchimediusGUI:
                 ),
             )
         finally:
-            self.organizer.is_running = False
-    
+            self.run_state.is_running = False
+
     def _stop_organization(self):
         """Stop the organization process."""
-        if self.organizer.is_running:
-            self.organizer.stop()
+        if self.run_state.is_running:
+            self.run_state.stop()
             self.status_var.set("Stopping...")
             logger.info("Stopping organization process...")
-    
+
     def _organization_complete(self):
         """Handle organization completion."""
         self.copy_button.config(state=tk.NORMAL)
         self.move_button.config(state=tk.NORMAL)
         self.stop_button.config(state=tk.DISABLED)
 
-        operation_name = "copied" if self.organizer.operation_mode == "copy" else "moved"
-        
+        operation_mode = getattr(self, "operation_mode", "copy")
+        operation_name = "copied" if operation_mode == "copy" else "moved"
+
         # Show completion message
         messagebox.showinfo(
             "Complete",
-            f"Organization complete!\n\n{operation_name.capitalize()} {self.organizer.files_processed} files.",
+            f"Organization complete!\n\n{operation_name.capitalize()} {self.run_state.files_processed} files.",
         )
 
     def _save_settings(self):
@@ -1172,31 +1159,27 @@ class ArchimediusGUI:
         ):
             return
             
-        # Configure organizer
-        self.organizer.set_source_dir(source_dir)
-        self.organizer.set_output_dir(output_dir)
-        self.organizer.set_operation_mode(mode)
-        self.organizer.stop_requested = False
-        self.organizer.is_running = True
-        self.organizer.files_processed = 0
-        
+        # Operation mode for this run
+        self.operation_mode = mode
+        self.run_state.begin()
+
         # Set flag to indicate we're processing selected files
         self.processing_selected_files = True
-        
+
         # Start processing in a separate thread
         threading.Thread(
             target=self._process_selected_files_thread,
-            args=(selected_paths, mode),
+            args=(selected_paths, output_dir, mode),
             daemon=True
         ).start()
-        
-    def _process_selected_files_thread(self, selected_paths, mode):
+
+    def _process_selected_files_thread(self, selected_paths, output_dir, mode):
         """Process the selected files in a separate thread."""
         try:
             # Update UI
             self.root.after(0, lambda: self._update_ui_for_processing(True))
-            
-            output_path = Path(self.organizer.output_dir)
+
+            output_path = Path(output_dir)
             templates = self._get_template_settings()
             exclude_unknown = self._get_exclude_unknown_settings()
             plans = build_plans_for_paths(
@@ -1242,7 +1225,7 @@ class ArchimediusGUI:
                 logger.info("Processing stopped by user")
 
             successful = organize_result.successful
-            self.organizer.files_processed = successful
+            self.run_state.files_processed = successful
             
             # Complete
             self.root.after(0, lambda: self._update_progress(processed[0], total_files, "Complete"))
@@ -1268,7 +1251,7 @@ class ArchimediusGUI:
             error_msg = str(e) if str(e) else "Unknown error"
             self.root.after(0, lambda msg=error_msg: messagebox.showerror("Error", f"An error occurred during processing: {msg}"))
         finally:
-            self.organizer.is_running = False
+            self.run_state.is_running = False
             # Update UI
             self.root.after(0, lambda: self._update_ui_for_processing(False))
             

@@ -16,8 +16,8 @@ The application follows a modular architecture with clear separation of concerns
 
 - **Model-View-Controller (MVC)**: The application loosely follows the MVC pattern:
 
-  - **Model**: `Archimedius` and `organize_plan` handle data and business logic
-  - **View**: Tkinter UI components in `MediaOrganizerGUI` and dialog classes
+  - **Model**: `Settings`, `organize_plan`, and `RunState` handle data and business logic
+  - **View**: Tkinter UI components in `ArchimediusGUI` and dialog classes
   - **Controller**: Event handlers and callbacks in the GUI classes
 
 - **Observer Pattern**: Used for updating the UI when background operations complete (via callbacks)
@@ -31,7 +31,7 @@ The application follows a modular architecture with clear separation of concerns
 - **`metadata_extract/`**: Per-media-type metadata extraction and media type detection
 - **`destination_path.py`**: Template-based destination path resolution
 - **`organize_plan.py`**: Source scan, file planning, and organize execution
-- **`archimedius.py`**: Core organizer state (templates, directories, operation mode)
+- **`run_state.py`**: Run-only flags (stop request, in-progress, processed count) for an active run
 - **`archimedius_gui.py`**: Entry point and GUI implementation
 
 ### Support Modules
@@ -50,13 +50,26 @@ The `organize_plan` module is the shared pipeline for Preview and Organize run:
 - `build_file_plan` — metadata extraction plus destination path via `resolve_destination_path`
 - `execute_plans` — copy/move planned files with collision handling
 
-### Archimedius
+### Settings
 
-The `Archimedius` class holds organizer configuration:
+The `Settings` dataclass (in `settings.py`) is the single source of truth for run
+configuration, persisted to JSON:
 
 - Source and destination directories
 - Per-media-type templates and operation mode (copy/move)
-- Progress and stop state for long-running runs
+- Selected extensions, exclude-unknown flags, collision policy, and UI preferences
+
+Preview and organize runs read paths, templates, and operation mode from `Settings`
+(and the bound GUI widgets) and pass them into `organize_plan`.
+
+### RunState
+
+The `RunState` dataclass (in `run_state.py`) holds only the mutable flags an
+active run needs:
+
+- `stop_requested` — set when the user clicks Stop
+- `is_running` — whether a run is in progress
+- `files_processed` — count of files transferred in the current run
 
 ### ArchimediusGUI
 
