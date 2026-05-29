@@ -12,11 +12,14 @@ import pytest
 
 from organize_plan import (
     build_file_plan,
+    build_plans_for_paths,
+    execute_plans,
     is_destination_inside_source,
     is_recognized_extension,
     iter_matching_files,
     scan_source,
     should_skip_file_under_destination,
+    transfer_plan,
 )
 from media_file import MediaFile
 
@@ -350,3 +353,101 @@ def test_iter_matching_files_raises_when_source_missing(tmp_path: Path):
             selected_extensions={".mp3"},
             supported_extensions=SUPPORTED,
         )
+
+
+def test_transfer_plan_copy_mode_places_file_under_output_root(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    audio_path = source / "song.mp3"
+    _touch(audio_path)
+
+    plan = build_file_plan(
+        audio_path,
+        templates={"audio": "{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    destination = transfer_plan(plan, output, "copy")
+
+    assert destination == output / plan.destination_path
+    assert destination.is_file()
+    assert audio_path.is_file()
+
+
+def test_execute_plans_copy_mode_end_to_end(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    _touch(source / "song.mp3")
+    _touch(source / "clip.mp4")
+
+    scan_result = scan_source(
+        source,
+        None,
+        {"audio": "{filename}", "video": "{filename}"},
+        SUPPORTED,
+        selected_extensions={".mp3", ".mp4"},
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    organize_result = execute_plans(scan_result.plans, output, operation_mode="copy")
+
+    assert organize_result.attempted == 2
+    assert organize_result.successful == 2
+    for plan in scan_result.plans:
+        assert (output / plan.destination_path).is_file()
+
+
+def test_execute_plans_move_mode_removes_source_files(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    audio_path = source / "song.mp3"
+    _touch(audio_path)
+
+    plans = build_plans_for_paths(
+        [audio_path],
+        templates={"audio": "{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+
+    organize_result = execute_plans(plans, output, operation_mode="move")
+
+    assert organize_result.successful == 1
+    assert not audio_path.exists()
+    assert (output / plans[0].destination_path).is_file()
+
+
+def test_execute_plans_honors_should_stop(tmp_path: Path):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    for index in range(3):
+        _touch(source / f"track{index}.mp3")
+
+    scan_result = scan_source(
+        source,
+        None,
+        TEMPLATES,
+        SUPPORTED,
+        selected_extensions={".mp3"},
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+    stop_after = {"count": 0}
+
+    def should_stop():
+        return stop_after["count"] >= 1
+
+    def on_each(_plan, _outcome):
+        stop_after["count"] += 1
+
+    organize_result = execute_plans(
+        scan_result.plans,
+        output,
+        operation_mode="copy",
+        should_stop=should_stop,
+        on_each=on_each,
+    )
+
+    assert organize_result.stopped_early is True
+    assert organize_result.attempted == 1
+    assert organize_result.successful == 1

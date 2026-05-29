@@ -5,7 +5,6 @@ Provides the main application window and user interface components.
 """
 
 import os
-import shutil
 import logging
 import threading
 import tkinter as tk
@@ -26,9 +25,8 @@ from settings import (
 )
 from log_window import LogWindow
 from preferences_dialog import PreferencesDialog
-from media_file import MediaFile
 from archimedius import Archimedius
-from organize_plan import scan_source
+from organize_plan import build_plans_for_paths, execute_plans, scan_source
 from about_dialog import AboutDialog
 from help_dialog import HelpDialog
 
@@ -945,10 +943,7 @@ class ArchimediusGUI:
                 return
 
             source_path = Path(source_dir)
-            exclude_unknown = {
-                media_type: self.exclude_unknown_vars[media_type].get()
-                for media_type in self.exclude_unknown_vars
-            }
+            exclude_unknown = self._get_exclude_unknown_settings()
 
             self.root.after(0, lambda: self.status_var.set("Counting files..."))
 
@@ -1119,6 +1114,20 @@ class ArchimediusGUI:
                 if var.get():
                     selected_extensions.append(ext)
         return selected_extensions
+
+    def _get_exclude_unknown_settings(self):
+        """Return per-media-type exclude-unknown flags from the GUI."""
+        return {
+            media_type: self.exclude_unknown_vars[media_type].get()
+            for media_type in self.exclude_unknown_vars
+        }
+
+    def _get_template_settings(self):
+        """Return current path templates for all media types."""
+        return {
+            media_type: self.template_vars[media_type].get().strip()
+            for media_type in MEDIA_TYPES
+        }
 
     def _on_template_change(self, *_, media_type=None):
         """
@@ -1465,112 +1474,64 @@ class ArchimediusGUI:
     def _run_organization_process(self, selected_extensions):
         """Run the actual organization process in a separate thread."""
         try:
-            # Find all media files
-            source_path = Path(self.organizer.source_dir)
             output_path = Path(self.organizer.output_dir)
+            templates = self._get_template_settings()
+            exclude_unknown = self._get_exclude_unknown_settings()
 
-            # Check if destination is inside source to avoid processing files in the destination
-            is_dest_in_source = False
-            try:
-                # Convert to absolute paths for comparison
-                abs_source = source_path.resolve()
-                abs_output = output_path.resolve()
-                # Check if output is a true subdirectory of source (not the same directory)
-                is_dest_in_source = False
-                if abs_output != abs_source:
-                    try:
-                        abs_output.relative_to(abs_source)
-                        is_dest_in_source = True
-                    except ValueError:
-                        is_dest_in_source = False
-                if is_dest_in_source:
-                    logger.info(f"Destination directory is inside source directory. Will skip files in destination.")
-            except Exception as e:
-                logger.error(f"Error checking directory relationship: {e}")
+            scan_result = scan_source(
+                self.organizer.source_dir,
+                self.organizer.output_dir,
+                templates,
+                self.settings.supported_extensions,
+                selected_extensions,
+                exclude_unknown,
+            )
+            total_files = scan_result.total_count
+            processed = [0]
 
-            # Count total files first (excluding files in destination if it's inside source)
-            total_files = 0
-            for file_path in source_path.rglob("*"):
-                if self.organizer.stop_requested:
-                    break
-                    
-                # Skip files in the destination directory if it's inside the source
-                if is_dest_in_source and file_path.is_file():
-                    try:
-                        rel_path = file_path.relative_to(source_path)
-                        dest_path = output_path / rel_path
-                        if file_path.is_relative_to(output_path) or file_path == dest_path:
-                            continue
-                    except (ValueError, RuntimeError):
-                        pass  # Not relative, so continue processing
-                        
-                if file_path.is_file() and file_path.suffix.lower() in selected_extensions:
-                    total_files += 1
-            
-            # Process files
-            processed = 0
-            
-            for file_path in source_path.rglob("*"):
-                if self.organizer.stop_requested:
-                    logger.info("Organization stopped by user")
-                    break
-                    
-                # Skip files in the destination directory if it's inside the source
-                if is_dest_in_source and file_path.is_file():
-                    try:
-                        rel_path = file_path.relative_to(source_path)
-                        dest_path = output_path / rel_path
-                        if file_path.is_relative_to(output_path) or file_path == dest_path:
-                            continue
-                    except (ValueError, RuntimeError):
-                        pass  # Not relative, so continue processing
-                    
-                if file_path.is_file() and file_path.suffix.lower() in selected_extensions:
-                    try:
-                        # Create a custom supported_extensions dictionary with only selected extensions
-                        custom_extensions = {}
-                        for media_type, extensions_list in self.settings.supported_extensions.items():
-                            custom_extensions[media_type] = [ext for ext in extensions_list if ext in selected_extensions]
-                        
-                        # Extract metadata
-                        media_file = MediaFile(file_path, custom_extensions)
-
-                        # Get the appropriate template for this file type
-                        template = self.organizer.get_template(media_file.file_type)
-                        
-                        # Get exclude_unknown setting for this file type
-                        exclude_unknown = self.exclude_unknown_vars.get(media_file.file_type, tk.BooleanVar(value=False)).get()
-                        
-                        # Generate destination path
-                        rel_path = media_file.get_formatted_path(template, exclude_unknown=exclude_unknown)
-                        dest_path = output_path / rel_path
-                        
-                        # Create destination directory if it doesn't exist
-                        os.makedirs(dest_path.parent, exist_ok=True)
-                        
-                        # Copy or move the file based on operation mode
-                        if self.organizer.operation_mode == "copy":
-                            shutil.copy2(file_path, dest_path)
-                            logger.info(f"Copied {file_path} to {dest_path}")
-                        else:  # move mode
-                            shutil.move(file_path, dest_path)
-                            logger.info(f"Moved {file_path} to {dest_path}")
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing file {file_path}: {e}")
-                    
-                    # Update progress
-                    processed += 1
-                    self.root.after(
-                        0, lambda p=processed, t=total_files, f=str(file_path): self._update_progress(p, t, f)
+            def on_each(plan, outcome):
+                if outcome.success:
+                    operation_name = self.organizer.operation_mode
+                    logger.info(
+                        f"{operation_name.capitalize()}d {plan.source_path} to {outcome.destination_path}"
                     )
-            
-            # Complete
-            self.organizer.files_processed = processed
-            self.root.after(0, lambda p=processed, t=total_files: self._update_progress(p, t, "Complete"))
+                else:
+                    logger.error(f"Error processing file {plan.source_path}: {outcome.error}")
+
+                processed[0] += 1
+                current = processed[0]
+                self.root.after(
+                    0,
+                    lambda p=current, t=total_files, f=str(plan.source_path): self._update_progress(
+                        p, t, f
+                    ),
+                )
+
+            organize_result = execute_plans(
+                scan_result.plans,
+                output_path,
+                operation_mode=self.organizer.operation_mode,
+                should_stop=lambda: self.organizer.stop_requested,
+                on_each=on_each,
+            )
+
+            if organize_result.stopped_early:
+                logger.info("Organization stopped by user")
+
+            self.organizer.files_processed = organize_result.successful
+            self.root.after(
+                0,
+                lambda p=organize_result.attempted, t=total_files: self._update_progress(
+                    p, t, "Complete"
+                ),
+            )
             operation_name = "copy" if self.organizer.operation_mode == "copy" else "move"
-            logger.info(f"{operation_name.capitalize()} operation complete. Processed {processed} files.")
-            
+            logger.info(
+                f"{operation_name.capitalize()} operation complete. "
+                f"Processed {organize_result.successful} files successfully out of "
+                f"{organize_result.attempted} attempted."
+            )
+
         except Exception as e:
             logger.error(f"Error during organization: {e}")
             self.root.after(
@@ -1799,21 +1760,21 @@ class ArchimediusGUI:
             messagebox.showerror("Error", f"Failed to create output directory: {str(e)}")
             return
             
-        # Get selected files
-        selected_files = []
-        for item, data in self.preview_files.items():
-            if data["selected"]:
-                # Use the full_path for source and dest_path for destination
-                selected_files.append((data["full_path"], data["dest_path"]))
-                
-        if not selected_files:
+        # Get selected source paths from the preview
+        selected_paths = [
+            data["full_path"]
+            for data in self.preview_files.values()
+            if data["selected"]
+        ]
+
+        if not selected_paths:
             messagebox.showinfo("Info", "No files selected for processing.")
             return
             
         # Confirm move operation
         if mode == "move" and not messagebox.askyesno(
             "Confirm Move Operation",
-            f"Moving {len(selected_files)} files will remove them from the source directory. Continue?",
+            f"Moving {len(selected_paths)} files will remove them from the source directory. Continue?",
         ):
             return
             
@@ -1831,74 +1792,67 @@ class ArchimediusGUI:
         # Start processing in a separate thread
         threading.Thread(
             target=self._process_selected_files_thread,
-            args=(selected_files, mode),
+            args=(selected_paths, mode),
             daemon=True
         ).start()
         
-    def _process_selected_files_thread(self, selected_files, mode):
+    def _process_selected_files_thread(self, selected_paths, mode):
         """Process the selected files in a separate thread."""
         try:
             # Update UI
             self.root.after(0, lambda: self._update_ui_for_processing(True))
             
-            # Get the output path
             output_path = Path(self.organizer.output_dir)
-            
-            # Process each selected file
-            total_files = len(selected_files)
-            processed = 0
-            successful = 0  # Track successfully processed files
-            
-            for source_path, dest_rel in selected_files:
-                if self.organizer.stop_requested:
-                    logger.info("Processing stopped by user")
-                    break
-                    
-                try:
-                    # Convert paths
-                    source_file = Path(source_path)
-                    
-                    # Skip if the source file doesn't exist
-                    if not source_file.exists():
-                        logger.warning(f"Skipping file {source_file} as it no longer exists")
-                        processed += 1
-                        continue
-                    
-                    # For destination, check if it's a relative or absolute path
-                    if os.path.isabs(dest_rel):
-                        dest_file = Path(dest_rel)
-                    else:
-                        dest_file = output_path / dest_rel
-                    
-                    # Create destination directory if it doesn't exist
-                    os.makedirs(dest_file.parent, exist_ok=True)
-                    
-                    # Copy or move the file
-                    if mode == "copy":
-                        shutil.copy2(source_file, dest_file)
-                        logger.info(f"Copied {source_file} to {dest_file}")
-                    else:  # move mode
-                        shutil.move(source_file, dest_file)
-                        logger.info(f"Moved {source_file} to {dest_file}")
-                    
-                    # Increment successful count
-                    successful += 1
-                        
-                except Exception as e:
-                    logger.error(f"Error processing file {source_path}: {e}")
-                    
-                # Update progress
-                processed += 1
-                self.root.after(0, lambda p=processed, t=total_files, f=source_path: 
-                               self._update_progress(p, t, f))
-                
-            # Update the organizer's files_processed attribute
+            templates = self._get_template_settings()
+            exclude_unknown = self._get_exclude_unknown_settings()
+            plans = build_plans_for_paths(
+                selected_paths,
+                templates=templates,
+                supported_extensions=self.settings.supported_extensions,
+                exclude_unknown=exclude_unknown,
+            )
+
+            total_files = len(plans)
+            processed = [0]
+
+            def on_each(plan, outcome):
+                if outcome.success:
+                    logger.info(
+                        f"{mode.capitalize()}d {plan.source_path} to {outcome.destination_path}"
+                    )
+                else:
+                    logger.error(f"Error processing file {plan.source_path}: {outcome.error}")
+
+                processed[0] += 1
+                current = processed[0]
+                self.root.after(
+                    0,
+                    lambda p=current, t=total_files, f=str(plan.source_path): self._update_progress(
+                        p, t, f
+                    ),
+                )
+
+            organize_result = execute_plans(
+                plans,
+                output_path,
+                operation_mode=mode,
+                should_stop=lambda: self.organizer.stop_requested,
+                on_each=on_each,
+            )
+
+            if organize_result.stopped_early:
+                logger.info("Processing stopped by user")
+
+            successful = organize_result.successful
             self.organizer.files_processed = successful
             
             # Complete
-            self.root.after(0, lambda: self._update_progress(processed, total_files, "Complete"))
+            self.root.after(0, lambda: self._update_progress(processed[0], total_files, "Complete"))
             operation_name = "copy" if mode == "copy" else "move"
-            logger.info(f"{operation_name.capitalize()} operation complete. Processed {successful} files successfully out of {processed} attempted.")
+            logger.info(
+                f"{operation_name.capitalize()} operation complete. "
+                f"Processed {successful} files successfully out of {organize_result.attempted} attempted."
+            )
             
             # Show custom completion message
             operation_past = "copied" if mode == "copy" else "moved"
