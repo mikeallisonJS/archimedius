@@ -7,6 +7,7 @@ Provides the main application window and user interface components.
 import os
 import logging
 import threading
+import copy
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
@@ -724,7 +725,7 @@ class ArchimediusGUI:
 
     def _reset_inline_extensions_to_default(self, media_type):
         """Reset inline extension editor for one media type."""
-        default_extensions = [ext.lstrip(".") for ext in defaults.get_default_extensions()[media_type]]
+        default_extensions = [ext.lstrip(".") for ext in defaults.DEFAULT_EXTENSIONS[media_type]]
         if media_type in getattr(self, "pref_extension_texts", {}):
             self.pref_extension_texts[media_type].delete("1.0", tk.END)
             self.pref_extension_texts[media_type].insert("1.0", "\n".join(default_extensions))
@@ -1639,7 +1640,7 @@ class ArchimediusGUI:
                 
                 self.settings = default_settings()
                 sync_gui_from_settings(self, self.settings)
-                self.settings.supported_extensions = defaults.get_default_extensions()
+                self.settings.supported_extensions = copy.deepcopy(defaults.DEFAULT_EXTENSIONS)
                 self._refresh_extension_filters()
                 self.apply_theme(self.dark_mode)
                 self._sync_inline_preferences_controls()

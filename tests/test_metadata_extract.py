@@ -6,13 +6,13 @@ Unit tests for metadata extraction by media type.
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import extensions
+import defaults
 import pytest
 from PIL import Image
 
 from metadata_extract import detect_media_type, extract_metadata
 
-SUPPORTED = extensions.DEFAULT_EXTENSIONS
+SUPPORTED = defaults.DEFAULT_EXTENSIONS
 
 
 def test_detect_media_type_case_insensitive():

@@ -5,12 +5,12 @@ Unit tests for MediaFile type detection and path formatting behavior.
 
 import os
 
-import extensions
+import defaults
 from media_file import MediaFile
 
 
 def test_detects_file_type_case_insensitive_extension():
-    media = MediaFile("Track.MP3", extensions.DEFAULT_EXTENSIONS)
+    media = MediaFile("Track.MP3", defaults.DEFAULT_EXTENSIONS)
 
     assert media.file_type == "audio"
     assert media.metadata["extension"] == "mp3"
@@ -18,14 +18,14 @@ def test_detects_file_type_case_insensitive_extension():
 
 
 def test_unknown_extension_maps_to_unknown_type():
-    media = MediaFile("notes.xyz", extensions.DEFAULT_EXTENSIONS)
+    media = MediaFile("notes.xyz", defaults.DEFAULT_EXTENSIONS)
 
     assert media.file_type == "unknown"
     assert media.metadata["filename"] == "notes"
 
 
 def test_get_formatted_path_sanitizes_reserved_characters_in_metadata():
-    media = MediaFile("song.mp3", extensions.DEFAULT_EXTENSIONS)
+    media = MediaFile("song.mp3", defaults.DEFAULT_EXTENSIONS)
     media.file_type = "audio"
     media.metadata.update(
         {
@@ -44,7 +44,7 @@ def test_get_formatted_path_sanitizes_reserved_characters_in_metadata():
 
 
 def test_get_formatted_path_exclude_unknown_removes_unknown_segments():
-    media = MediaFile("cover.jpg", extensions.DEFAULT_EXTENSIONS)
+    media = MediaFile("cover.jpg", defaults.DEFAULT_EXTENSIONS)
     media.file_type = "image"
     media.metadata.update(
         {
@@ -60,7 +60,7 @@ def test_get_formatted_path_exclude_unknown_removes_unknown_segments():
 
 
 def test_get_formatted_path_adds_extension_when_template_has_filename_only():
-    media = MediaFile("clip.mp4", extensions.DEFAULT_EXTENSIONS)
+    media = MediaFile("clip.mp4", defaults.DEFAULT_EXTENSIONS)
     media.metadata.update({"filename": "clip", "extension": "mp4"})
 
     formatted = media.get_formatted_path("{filename}")

@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import extensions
+import defaults
 import pytest
 
 from organize_plan import (
@@ -24,7 +24,7 @@ from organize_plan import (
 from destination_path import resolve_destination_path
 from metadata_extract import extract_metadata
 
-SUPPORTED = extensions.DEFAULT_EXTENSIONS
+SUPPORTED = defaults.DEFAULT_EXTENSIONS
 TEMPLATES = {
     "audio": "{genre}/{filename}",
     "video": "{filename}",

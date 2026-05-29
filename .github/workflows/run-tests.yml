@@ -54,7 +54,6 @@ jobs:
             echo "def test_import():
                 import archimedius
                 import media_file
-                import extensions
                 import defaults
                 assert True" > tests/test_imports.py
           fi

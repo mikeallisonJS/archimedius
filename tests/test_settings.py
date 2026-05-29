@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import copy
 import defaults
 from settings import Settings, configure_logging, default_settings, load_settings, save_settings
 
@@ -77,9 +78,9 @@ def test_load_save_round_trip_file(tmp_path):
         logging_level="WARNING",
         supported_extensions={"audio": [".wav"], "video": [], "image": [], "ebook": []},
     )
-    settings.supported_extensions["video"] = defaults.get_default_extensions()["video"]
-    settings.supported_extensions["image"] = defaults.get_default_extensions()["image"]
-    settings.supported_extensions["ebook"] = defaults.get_default_extensions()["ebook"]
+    settings.supported_extensions["video"] = defaults.DEFAULT_EXTENSIONS["video"]
+    settings.supported_extensions["image"] = defaults.DEFAULT_EXTENSIONS["image"]
+    settings.supported_extensions["ebook"] = defaults.DEFAULT_EXTENSIONS["ebook"]
 
     save_settings(settings, config_file)
     loaded = load_settings(config_file)
@@ -93,7 +94,7 @@ def test_load_save_round_trip_file(tmp_path):
 def test_from_dict_legacy_template_field():
     data = {
         "template": "{year}/legacy/{filename}",
-        "custom_extensions": defaults.get_default_extensions(),
+        "custom_extensions": copy.deepcopy(defaults.DEFAULT_EXTENSIONS),
     }
     settings = Settings.from_dict(data)
     assert settings.templates["audio"] == "{year}/legacy/{filename}"
