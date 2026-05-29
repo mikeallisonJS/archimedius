@@ -276,3 +276,77 @@ def test_iter_matching_files_skips_inaccessible_paths(tmp_path: Path):
         )
 
     assert [path.name for path in matches] == ["good.mp3"]
+
+
+def test_scan_source_raises_when_destination_is_not_directory(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    destination_file = tmp_path / "dest.txt"
+    _touch(destination_file)
+
+    with pytest.raises(ValueError, match="Destination path is not a directory"):
+        scan_source(
+            source,
+            destination_file,
+            TEMPLATES,
+            SUPPORTED,
+            selected_extensions={".mp3"},
+            exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+        )
+
+
+def test_scan_source_raises_when_selected_extensions_empty(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+
+    with pytest.raises(ValueError, match="selected_extensions cannot be empty"):
+        scan_source(
+            source,
+            None,
+            TEMPLATES,
+            SUPPORTED,
+            selected_extensions=[],
+            exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+        )
+
+
+def test_scan_source_raises_when_supported_extensions_empty(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+
+    with pytest.raises(ValueError, match="supported_extensions cannot be empty"):
+        scan_source(
+            source,
+            None,
+            TEMPLATES,
+            {},
+            selected_extensions={".mp3"},
+            exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+        )
+
+
+def test_scan_source_raises_when_max_files_negative(tmp_path: Path):
+    source = tmp_path / "source"
+    _touch(source / "song.mp3")
+
+    with pytest.raises(ValueError, match="max_files must be zero or greater"):
+        scan_source(
+            source,
+            None,
+            TEMPLATES,
+            SUPPORTED,
+            selected_extensions={".mp3"},
+            exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+            max_files=-1,
+        )
+
+
+def test_iter_matching_files_raises_when_source_missing(tmp_path: Path):
+    missing = tmp_path / "missing"
+
+    with pytest.raises(ValueError, match="does not exist"):
+        iter_matching_files(
+            missing,
+            selected_extensions={".mp3"},
+            supported_extensions=SUPPORTED,
+        )

@@ -50,6 +50,38 @@ def normalize_selected_extensions(selected_extensions: Iterable[str]) -> set[str
     return {ext.lower() for ext in selected_extensions}
 
 
+def _validate_source_path(source_path: Path) -> None:
+    if not source_path.exists():
+        raise ValueError(f"Source path does not exist: {source_path}")
+    if not source_path.is_dir():
+        raise ValueError(f"Source path is not a directory: {source_path}")
+
+
+def _validate_destination_path(destination_path: Path | None) -> None:
+    if destination_path is None:
+        return
+    if destination_path.exists() and not destination_path.is_dir():
+        raise ValueError(f"Destination path is not a directory: {destination_path}")
+
+
+def _validate_scan_inputs(
+    supported_extensions: Mapping[str, Sequence[str]],
+    selected_extensions: Iterable[str],
+    max_files: int | None,
+) -> set[str]:
+    if not supported_extensions:
+        raise ValueError("supported_extensions cannot be empty")
+
+    selected = normalize_selected_extensions(selected_extensions)
+    if not selected:
+        raise ValueError("selected_extensions cannot be empty")
+
+    if max_files is not None and max_files < 0:
+        raise ValueError("max_files must be zero or greater")
+
+    return selected
+
+
 def is_recognized_extension(
     suffix: str, supported_extensions: Mapping[str, Sequence[str]]
 ) -> bool:
@@ -108,7 +140,10 @@ def iter_matching_files(
     - extension is unrecognized (not in supported_extensions)
     - file is under destination while destination is inside source
     """
-    selected = normalize_selected_extensions(selected_extensions)
+    _validate_source_path(source)
+    _validate_destination_path(destination)
+
+    selected = _validate_scan_inputs(supported_extensions, selected_extensions, max_files=None)
     recognized = all_supported_extensions(supported_extensions)
     dest_in_source = is_destination_inside_source(source, destination)
     matches: list[Path] = []
@@ -190,12 +225,11 @@ def scan_source(
         ScanResult with plans (possibly limited) and total matching file count.
     """
     source_path = Path(source)
-    if not source_path.exists():
-        raise ValueError(f"Source path does not exist: {source_path}")
-    if not source_path.is_dir():
-        raise ValueError(f"Source path is not a directory: {source_path}")
-
     destination_path = Path(destination) if destination else None
+
+    _validate_source_path(source_path)
+    _validate_destination_path(destination_path)
+    _validate_scan_inputs(supported_extensions, selected_extensions, max_files)
 
     matching_files = iter_matching_files(
         source_path,
