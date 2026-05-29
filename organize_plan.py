@@ -12,8 +12,9 @@ import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Literal, Mapping, Sequence
 
+import defaults
 from destination_path import resolve_destination_path
 from metadata_extract import detect_media_type, extract_metadata
 
@@ -33,6 +34,10 @@ class FilePlan:
     source_path: Path
     destination_path: str
     media_type: str
+
+
+CollisionAction = Literal["rename", "overwrite", "skip"]
+CollisionResolver = Callable[[FilePlan, Path], CollisionAction]
 
 
 @dataclass(frozen=True)
@@ -292,10 +297,11 @@ class PlanTransferOutcome:
     plan: FilePlan
     destination_path: Path | None
     error: str | None = None
+    skipped: bool = False
 
     @property
     def success(self) -> bool:
-        return self.error is None
+        return self.error is None and self.destination_path is not None and not self.skipped
 
 
 @dataclass(frozen=True)
@@ -337,10 +343,97 @@ def build_plans_for_paths(
     ]
 
 
+def destination_path_is_occupied(
+    destination_path: Path,
+    occupied_paths: set[Path],
+) -> bool:
+    """Return True when a destination path already exists on disk or in the run."""
+    try:
+        resolved = destination_path.resolve()
+    except OSError:
+        resolved = destination_path
+    return resolved in occupied_paths or destination_path.exists()
+
+
+def find_unique_destination_path(
+    destination_path: Path,
+    occupied_paths: set[Path],
+) -> Path:
+    """Return a non-colliding path by appending (1), (2), ... before the extension."""
+    if not destination_path_is_occupied(destination_path, occupied_paths):
+        return destination_path
+
+    stem = destination_path.stem
+    suffix = destination_path.suffix
+    parent = destination_path.parent
+    counter = 1
+
+    while True:
+        candidate = parent / f"{stem} ({counter}){suffix}"
+        if not destination_path_is_occupied(candidate, occupied_paths):
+            return candidate
+        counter += 1
+
+
+def resolve_collision_action(
+    policy: str,
+    *,
+    collision_resolver: CollisionResolver | None = None,
+    plan: FilePlan | None = None,
+    destination_path: Path | None = None,
+) -> CollisionAction:
+    """Map a collision policy (and optional resolver) to a concrete action."""
+    normalized = policy if policy in defaults.COLLISION_POLICIES else defaults.DEFAULT_SETTINGS["collision_policy"]
+
+    if normalized == defaults.COLLISION_POLICY_PROMPT:
+        if collision_resolver is None or plan is None or destination_path is None:
+            return "rename"
+        return collision_resolver(plan, destination_path)
+
+    if normalized == defaults.COLLISION_POLICY_RENAME:
+        return "rename"
+    if normalized == defaults.COLLISION_POLICY_OVERWRITE:
+        return "overwrite"
+    return "skip"
+
+
+def resolve_transfer_destination(
+    destination_path: Path,
+    *,
+    policy: str,
+    occupied_paths: set[Path],
+    collision_resolver: CollisionResolver | None = None,
+    plan: FilePlan | None = None,
+) -> tuple[Path | None, CollisionAction | None]:
+    """
+    Resolve the destination path for a planned transfer.
+
+    Returns (path, action). path is None when the file should be skipped.
+    action is None when no collision occurred.
+    """
+    if not destination_path_is_occupied(destination_path, occupied_paths):
+        return destination_path, None
+
+    action = resolve_collision_action(
+        policy,
+        collision_resolver=collision_resolver,
+        plan=plan,
+        destination_path=destination_path,
+    )
+
+    if action == "skip":
+        return None, action
+    if action == "overwrite":
+        return destination_path, action
+    return find_unique_destination_path(destination_path, occupied_paths), action
+
+
 def transfer_plan(
     plan: FilePlan,
     output_root: str | Path,
     operation_mode: str,
+    *,
+    destination_path: Path | None = None,
 ) -> Path:
     """
     Copy or move one planned file under output_root.
@@ -351,7 +444,8 @@ def transfer_plan(
         raise ValueError("operation_mode must be 'copy' or 'move'")
 
     source_path = plan.source_path
-    destination_path = Path(output_root) / plan.destination_path
+    if destination_path is None:
+        destination_path = Path(output_root) / plan.destination_path
 
     if not source_path.is_file():
         raise FileNotFoundError(f"Source file does not exist: {source_path}")
@@ -371,12 +465,15 @@ def execute_plans(
     output_root: str | Path,
     *,
     operation_mode: str,
+    collision_policy: str = defaults.DEFAULT_SETTINGS["collision_policy"],
+    collision_resolver: CollisionResolver | None = None,
     should_stop: Callable[[], bool] | None = None,
     on_each: Callable[[FilePlan, PlanTransferOutcome], None] | None = None,
 ) -> OrganizeResult:
     """Execute copy or move for each plan, continuing after per-file errors."""
     outcomes: list[PlanTransferOutcome] = []
     stopped_early = False
+    occupied_paths: set[Path] = set()
 
     for plan in plans:
         if should_stop and should_stop():
@@ -384,8 +481,29 @@ def execute_plans(
             break
 
         try:
-            destination_path = transfer_plan(plan, output_root, operation_mode)
-            outcome = PlanTransferOutcome(plan, destination_path)
+            planned_destination = Path(output_root) / plan.destination_path
+            resolved_destination, _action = resolve_transfer_destination(
+                planned_destination,
+                policy=collision_policy,
+                occupied_paths=occupied_paths,
+                collision_resolver=collision_resolver,
+                plan=plan,
+            )
+
+            if resolved_destination is None:
+                outcome = PlanTransferOutcome(plan, None, skipped=True)
+            else:
+                destination_path = transfer_plan(
+                    plan,
+                    output_root,
+                    operation_mode,
+                    destination_path=resolved_destination,
+                )
+                try:
+                    occupied_paths.add(destination_path.resolve())
+                except OSError:
+                    occupied_paths.add(destination_path)
+                outcome = PlanTransferOutcome(plan, destination_path)
         except (OSError, ValueError) as exc:
             outcome = PlanTransferOutcome(plan, None, str(exc))
 

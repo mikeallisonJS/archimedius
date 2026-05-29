@@ -41,6 +41,24 @@ DEFAULT_EXCLUDE_UNKNOWN = {
     "ebook": EXCLUDE_UNKNOWN_DEFAULT,
 }
 
+# Collision policy options for path conflicts during organize runs
+COLLISION_POLICY_PROMPT = "prompt"
+COLLISION_POLICY_RENAME = "rename"
+COLLISION_POLICY_OVERWRITE = "overwrite"
+COLLISION_POLICY_SKIP = "skip"
+COLLISION_POLICIES = (
+    COLLISION_POLICY_PROMPT,
+    COLLISION_POLICY_RENAME,
+    COLLISION_POLICY_OVERWRITE,
+    COLLISION_POLICY_SKIP,
+)
+COLLISION_POLICY_LABELS = {
+    COLLISION_POLICY_PROMPT: "Ask for each collision",
+    COLLISION_POLICY_RENAME: "Rename automatically",
+    COLLISION_POLICY_OVERWRITE: "Overwrite existing file",
+    COLLISION_POLICY_SKIP: "Skip file",
+}
+
 # Default settings
 DEFAULT_SETTINGS = {
     "show_full_paths": False,
@@ -49,6 +67,7 @@ DEFAULT_SETTINGS = {
     "logging_level": "INFO",
     "dark_mode": False,
     "exclude_unknown": DEFAULT_EXCLUDE_UNKNOWN,
+    "collision_policy": COLLISION_POLICY_PROMPT,
 }
 
 # Logging levels with user-friendly names

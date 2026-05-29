@@ -60,6 +60,7 @@ class Settings:
     logging_level: str = defaults.DEFAULT_SETTINGS["logging_level"]
     dark_mode: bool = defaults.DEFAULT_SETTINGS["dark_mode"]
     window_geometry: str = defaults.DEFAULT_WINDOW_SIZES["main_window"]
+    collision_policy: str = defaults.DEFAULT_SETTINGS["collision_policy"]
 
     def __post_init__(self) -> None:
         if not self.extension_selections:
@@ -83,6 +84,7 @@ class Settings:
             "dark_mode": self.dark_mode,
             "window_geometry": self.window_geometry,
             "operation_mode": self.operation_mode,
+            "collision_policy": self.collision_policy,
         }
 
     @classmethod
@@ -135,7 +137,17 @@ class Settings:
                 data.get("window_geometry", defaults.DEFAULT_WINDOW_SIZES["main_window"])
                 or defaults.DEFAULT_WINDOW_SIZES["main_window"]
             ),
+            collision_policy=_normalize_collision_policy(
+                data.get("collision_policy", defaults.DEFAULT_SETTINGS["collision_policy"])
+            ),
         )
+
+
+def _normalize_collision_policy(value: str | None) -> str:
+    policy = str(value or defaults.DEFAULT_SETTINGS["collision_policy"])
+    if policy in defaults.COLLISION_POLICIES:
+        return policy
+    return defaults.DEFAULT_SETTINGS["collision_policy"]
 
 
 def default_settings() -> Settings:
@@ -207,6 +219,7 @@ def sync_gui_from_settings(gui: Any, settings: Settings) -> None:
     gui.logging_level = settings.logging_level
     gui.dark_mode = settings.dark_mode
     gui.operation_mode = settings.operation_mode
+    gui.collision_policy = settings.collision_policy
 
 
 def collect_settings_from_gui(gui: Any) -> Settings:
@@ -231,6 +244,9 @@ def collect_settings_from_gui(gui: Any) -> Settings:
         extension_selections=extension_selections,
         exclude_unknown=exclude_unknown,
         operation_mode=getattr(gui, "operation_mode", "copy"),
+        collision_policy=_normalize_collision_policy(
+            getattr(gui, "collision_policy", defaults.DEFAULT_SETTINGS["collision_policy"])
+        ),
         show_full_paths=getattr(gui, "show_full_paths", defaults.DEFAULT_SETTINGS["show_full_paths"]),
         auto_save_enabled=getattr(
             gui, "auto_save_enabled", defaults.DEFAULT_SETTINGS["auto_save_enabled"]
