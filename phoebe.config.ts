@@ -10,7 +10,9 @@
 // node_modules, and this repo has no `phoebe-agent` dependency. The fields are
 // `PhoebeUserConfig` from phoebe-agent (docs/configuration.md).
 //
-// Secrets live in the gitignored `.env` beside this file (see .env.example):
+// Everything else Phoebe reads lives in `.phoebe/` (`configDir` below): the
+// engine's shipped prompts, unedited, in .phoebe/prompts/, and the gitignored
+// secrets file .phoebe/.env (see .phoebe/.env.example):
 // GH_TOKEN, a fine-grained PAT for this repo, and ANTHROPIC_AUTH_TOKEN, the
 // provider key. The workspace image sends Claude Code through a shared proxy
 // when that key is the one it is given.
@@ -21,6 +23,7 @@
 const config = {
   repoSlug: "mikeallisonJS/archimedius",
   repoUrl: "https://github.com/mikeallisonJS/archimedius.git",
+  configDir: ".phoebe",
   installCommand:
     "python3 -m venv venv && venv/bin/pip install -r requirements.txt pytest pytest-cov flake8",
   checkCommand:
