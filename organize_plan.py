@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Literal, Mapping, Sequence
+from typing import Callable, Iterable, Literal, Mapping, Protocol, Sequence
 
 import defaults
 from destination_path import resolve_destination_path
@@ -38,6 +39,35 @@ class FilePlan:
 
 CollisionAction = Literal["rename", "overwrite", "skip"]
 CollisionResolver = Callable[[FilePlan, Path], CollisionAction]
+
+
+class CollisionPrompt(Protocol):
+    """Port for asking the user how to handle one path collision.
+
+    Returns (action, apply_to_all). Adapters (e.g. the Tk dialog) own any
+    threading or UI concerns.
+    """
+
+    def __call__(self, plan: FilePlan, destination_path: Path) -> tuple[CollisionAction, bool]: ...
+
+
+class PromptCollisionResolver:
+    """Collision resolver for the prompt policy: asks via a port, remembers apply-to-all."""
+
+    def __init__(self, prompt: CollisionPrompt) -> None:
+        self._prompt = prompt
+        self._remembered: CollisionAction | None = None
+        self._lock = threading.Lock()
+
+    def __call__(self, plan: FilePlan, destination_path: Path) -> CollisionAction:
+        with self._lock:
+            if self._remembered is not None:
+                return self._remembered
+        action, apply_all = self._prompt(plan, destination_path)
+        if apply_all:
+            with self._lock:
+                self._remembered = action
+        return action
 
 
 @dataclass(frozen=True)

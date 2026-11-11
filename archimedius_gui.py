@@ -28,6 +28,7 @@ from log_window import LogWindow
 from run_state import RunState
 from organize_plan import (
     CollisionAction,
+    PromptCollisionResolver,
     scan_source,
 )
 from organize_run import (
@@ -295,36 +296,27 @@ class ArchimediusGUI:
             self.log_window.show()
 
     def _create_collision_resolver(self):
-        """Build a thread-safe collision resolver for prompt policy during a run."""
-        run_state = {"action": None, "apply_all": False}
-        state_lock = threading.Lock()
+        """Build a prompt-policy resolver backed by the Tk dialog adapter."""
+        return PromptCollisionResolver(self._ask_collision_via_dialog)
 
-        def resolver(plan, destination_path) -> CollisionAction:
-            with state_lock:
-                if run_state["apply_all"] and run_state["action"] is not None:
-                    return run_state["action"]
+    def _ask_collision_via_dialog(self, plan, destination_path) -> tuple[CollisionAction, bool]:
+        """Tk adapter for the collision prompt port; marshals the dialog onto the UI thread."""
+        result: dict[str, tuple[CollisionAction, bool]] = {}
+        done = threading.Event()
 
-            result: dict[str, CollisionAction | None] = {"action": None}
-            done = threading.Event()
-
-            def show_dialog() -> None:
-                action, apply_all = CollisionPromptDialog(
+        def show_dialog() -> None:
+            try:
+                result["answer"] = CollisionPromptDialog(
                     self.root,
                     source_path=plan.source_path,
                     destination_path=destination_path,
                 ).show()
-                result["action"] = action
-                if apply_all:
-                    with state_lock:
-                        run_state["action"] = action
-                        run_state["apply_all"] = True
+            finally:
                 done.set()
 
-            self.root.after(0, show_dialog)
-            done.wait()
-            return result["action"] or defaults.COLLISION_POLICY_SKIP
-
-        return resolver
+        self.root.after(0, show_dialog)
+        done.wait()
+        return result.get("answer", (defaults.COLLISION_POLICY_SKIP, False))
 
     def _collision_resolver_for_policy(self, collision_policy):
         """A prompt resolver when the policy asks, otherwise None."""

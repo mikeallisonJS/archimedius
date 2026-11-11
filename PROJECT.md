@@ -50,6 +50,7 @@ The `organize_plan` module is the shared pipeline for Preview and Organize run:
 - `iter_matching_files` / `scan_source` — recursive source scan with extension and destination rules
 - `build_file_plan` — metadata extraction plus destination path via `resolve_destination_path`
 - `execute_plans` — copy/move planned files with collision handling
+- `CollisionPrompt` / `PromptCollisionResolver` — port for "ask for each" collisions plus apply-to-all memory; the Tk dialog (`archimedius_gui._ask_collision_via_dialog`) is one adapter, tests use a fake
 
 ### organize_run
 

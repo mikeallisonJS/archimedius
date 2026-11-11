@@ -20,6 +20,7 @@ from organize_plan import (
     is_destination_inside_source,
     is_recognized_extension,
     iter_matching_files,
+    PromptCollisionResolver,
     resolve_collision_action,
     resolve_transfer_destination,
     scan_source,
@@ -666,3 +667,57 @@ def test_destination_path_is_occupied_detects_existing_file(tmp_path: Path):
 
     assert destination_path_is_occupied(destination, set()) is True
     assert destination_path_is_occupied(tmp_path / "missing.mp3", set()) is False
+
+
+class _FakePrompt:
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.calls = []
+
+    def __call__(self, plan, destination_path):
+        self.calls.append(destination_path)
+        return self.answers.pop(0)
+
+
+def _run_prompted(tmp_path: Path, names, prompt):
+    source = tmp_path / "source"
+    output = tmp_path / "output"
+    incoming = []
+    for name in names:
+        _touch(output / name)
+        _touch(source / name)
+        incoming.append(source / name)
+    plans = build_plans_for_paths(
+        incoming,
+        templates={"audio": "{filename}"},
+        supported_extensions=SUPPORTED,
+        exclude_unknown=EXCLUDE_UNKNOWN_OFF,
+    )
+    execute_plans(
+        plans,
+        output,
+        operation_mode="copy",
+        collision_policy=defaults.COLLISION_POLICY_PROMPT,
+        collision_resolver=PromptCollisionResolver(prompt),
+    )
+    return output
+
+
+def test_prompt_port_is_asked_for_each_collision(tmp_path: Path):
+    prompt = _FakePrompt([("skip", False), ("rename", False)])
+
+    output = _run_prompted(tmp_path, ["a.mp3", "b.mp3"], prompt)
+
+    assert len(prompt.calls) == 2
+    assert not (output / "a (1).mp3").exists()
+    assert (output / "b (1).mp3").is_file()
+
+
+def test_prompt_port_apply_to_all_stops_further_prompts(tmp_path: Path):
+    prompt = _FakePrompt([("rename", True)])
+
+    output = _run_prompted(tmp_path, ["a.mp3", "b.mp3"], prompt)
+
+    assert len(prompt.calls) == 1
+    assert (output / "a (1).mp3").is_file()
+    assert (output / "b (1).mp3").is_file()
