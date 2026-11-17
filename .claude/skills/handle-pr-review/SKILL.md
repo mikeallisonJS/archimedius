@@ -11,7 +11,7 @@ When the user asks to check or fix review feedback on a PR:
 
 From context (branch, issue number) or ask. Prefer `gh pr view --json number,url` from the current branch. Fall back to `gh api` by head branch or listing PRs.
 
-Infer `OWNER` and `REPO` from `git remote -v` (this repo may be `mikeallisonJS/archimedius` or `mikeallisonJS/media_organizer`).
+Infer `OWNER` and `REPO` from `git remote -v` (`gh` does this automatically for most commands). Use the base repo's owner and name in GraphQL and REST API calls (works across forks).
 
 ## 2. Fetch unresolved threads (GraphQL)
 
@@ -77,7 +77,7 @@ Present the triage to the user for confirmation before proceeding. Format:
 
 ## 4. Analyse holistically before changing code
 
-**Critical: do not fix comments one-by-one in isolation.**
+Plan the fixes as one set before changing any code.
 
 - Read all files touched by "Fix" threads. Understand the broader context.
 - Identify dependencies between comments (e.g. a rename in file A affects an import in file B).
