@@ -11,7 +11,7 @@ When the user asks to check or fix review feedback on a PR:
 
 From context (branch, issue number) or ask. Prefer `gh pr view --json number,url` from the current branch. Fall back to `gh api` by head branch or listing PRs.
 
-Infer `OWNER` and `REPO` from `git remote -v` (`gh` does this automatically for most commands). Use the base repo's owner and name in GraphQL and REST API calls (works across forks).
+Take `OWNER` and `REPO` from the PR URL, which names the base repository. Use them in every GraphQL, REST and `gh pr comment` call. Don't read them from `git remote -v`: in a clone of a fork, the remote is the fork, not the repository the PR is on.
 
 ## 2. Fetch unresolved threads (GraphQL)
 
@@ -121,7 +121,7 @@ gh api repos/OWNER/REPO/pulls/PR/comments/COMMENT_ID/replies \
 Or if the thread is a top-level review comment, fall back to a PR-level comment:
 
 ```bash
-gh pr comment PR_NUMBER --body "Your reply here"
+gh pr comment PR_NUMBER -R OWNER/REPO --body "Your reply here"
 ```
 
 ## 9. Post summary comment
@@ -130,7 +130,7 @@ Add a PR comment summarising everything. **Resolve the commit SHA first** — do
 
 ```bash
 COMMIT_SHA=$(git rev-parse --short HEAD)
-gh pr comment NUMBER --body "## Review feedback addressed ($COMMIT_SHA)
+gh pr comment NUMBER -R OWNER/REPO --body "## Review feedback addressed ($COMMIT_SHA)
 
 **Fixed:**
 - \`metadata_extract/audio.py:42\` — [brief change description]
