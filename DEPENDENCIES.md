@@ -31,7 +31,7 @@ Please consult with a legal professional if you have questions about license com
 
 #### TinyTag
 
-- **Version**: 2.1.0
+- **Version**: 2.3.2
 - **Description**: A library for reading music meta data of MP3, OGG, FLAC, WAV and MP4 files
 - **License**: MIT
 - **Website**: https://github.com/devsnd/tinytag
